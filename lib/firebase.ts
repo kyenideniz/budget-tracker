@@ -1,17 +1,17 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore"; // 1. Added this import
+import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAwtq6OO_bbIsZLFwb3xH19vFfqPfeen40",
-  authDomain: "budget-track-ad317.firebaseapp.com",
-  projectId: "budget-track-ad317",
-  storageBucket: "budget-track-ad317.firebasestorage.app",
-  messagingSenderId: "835924278795",
-  appId: "1:835924278795:web:d87fa58d0cf7ea5ebf110e"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// 2. Initialize Firestore and EXPORT it so your page can use it
+// Initialize Firestore and export
 export const db = getFirestore(app);
