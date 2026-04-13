@@ -1,4 +1,5 @@
-import "./globals.css"; // This connects the styles!
+import "./globals.css";
+import {Metadata} from "next"; // This connects the styles!
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -10,3 +11,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
+
+export const metadata: Metadata = {
+  title: "Budget Tracker",
+  manifest: "/manifest.json", // Add this line
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Budget",
+  },
+};
