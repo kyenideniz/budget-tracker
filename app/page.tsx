@@ -1,65 +1,300 @@
-import Image from "next/image";
+"use client";
+import React, { useState, useEffect, ChangeEvent } from 'react';
+import { db } from '@/lib/firebase';
+import { doc, setDoc, onSnapshot, getDoc, DocumentData } from 'firebase/firestore';
 
-export default function Home() {
+// 1. DEFINE TYPES
+interface Transaction {
+  id: number;
+  amount: number;
+  category: string;
+  desc?: string;
+}
+
+interface FixedItem {
+  id: string;
+  name: string;
+  amt: number;
+}
+
+interface MonthData {
+  incomeItems: Transaction[];
+  variableExpenses: Transaction[];
+  fixedPaid: string[];
+  savings: number;
+  rollover: number;
+}
+
+export default function BudgetTracker() {
+  const [currentMonth, setCurrentMonth] = useState<string>("");
+  const [incomeItems, setIncomeItems] = useState<Transaction[]>([]);
+  const [variableExpenses, setVariableExpenses] = useState<Transaction[]>([]);
+  const [fixedPaid, setFixedPaid] = useState<string[]>([]);
+  const [savings, setSavings] = useState<number>(0);
+  const [rollover, setRollover] = useState<number>(0);
+
+  const [inputType, setInputType] = useState<'Expense' | 'Income'>('Expense');
+  const [newItem, setNewItem] = useState({ amount: "", category: "Groceries", desc: "" });
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  // 2. FISCAL MONTH LOGIC
+  useEffect(() => {
+    const fetchActiveMonth = async () => {
+      const settingsRef = doc(db, "users", "kerem-efe", "settings", "activeMonth");
+      const settingsSnap = await getDoc(settingsRef);
+
+      if (settingsSnap.exists()) {
+        setCurrentMonth(settingsSnap.data().monthId);
+      } else {
+        const initialMonth = new Date().toISOString().slice(0, 7);
+        setCurrentMonth(initialMonth);
+        await setDoc(settingsRef, { monthId: initialMonth });
+      }
+    };
+    fetchActiveMonth();
+  }, []);
+
+  // 3. DATA SYNCING
+  useEffect(() => {
+    if (!currentMonth) return;
+    const unsub = onSnapshot(doc(db, "users", "kerem-efe", "months", currentMonth), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as MonthData;
+        setIncomeItems(data.incomeItems || []);
+        setVariableExpenses(data.variableExpenses || []);
+        setFixedPaid(data.fixedPaid || []);
+        setSavings(data.savings || 0);
+        setRollover(data.rollover || 0);
+      }
+    });
+    return () => unsub();
+  }, [currentMonth]);
+
+  const sync = (updates: Partial<MonthData>) =>
+    setDoc(doc(db, "users", "kerem-efe", "months", currentMonth), updates, { merge: true });
+
+  // 4. DEFINITIONS & MATH
+  const fixedDefinitions: Record<string, FixedItem[]> = {
+    Housing: [{ id: 'rent', name: 'Rent', amt: 773 }, { id: 'bills', name: 'Bills', amt: 164 }],
+    Subscriptions: [
+      { id: 'phone', name: 'Phone', amt: 59.99 },
+      { id: 'icloud', name: 'iCloud', amt: 2.99 },
+      { id: 'amazon', name: 'Amazon', amt: 2.99 },
+      ...([0, 3, 6, 9].includes(new Date(currentMonth + "-01").getMonth()) ? [{ id: 'insurance', name: 'Insurance', amt: 29.97 }] : [])
+    ]
+  };
+
+  const variableCategories = ['Groceries', 'Eating Out', 'Coffee', 'Transport', 'Travel', 'Fun', 'Other'];
+
+  const totalIncome = incomeItems.reduce((a, b) => a + b.amount, 0) + Number(rollover);
+  const paidFixedTotal = Object.values(fixedDefinitions).flat()
+    .filter((item) => fixedPaid.includes(item.id))
+    .reduce((a, b) => a + b.amt, 0);
+  const totalSpent = paidFixedTotal + variableExpenses.reduce((a, b) => a + b.amount, 0);
+
+  // 5. ACTIONS
+  const startNextMonth = async () => {
+    if (!window.confirm("Start new month? This will carry your current balance forward.")) return;
+
+    const remainingBalance = totalIncome - totalSpent - savings;
+    const date = new Date(currentMonth + "-02");
+    date.setMonth(date.getMonth() + 1);
+    const nextId = date.toISOString().slice(0, 7);
+
+    const nextMonthData: MonthData = {
+      fixedPaid: ['amazon', 'icloud'],
+      incomeItems: [],
+      variableExpenses: [],
+      savings: 0,
+      rollover: remainingBalance > 0 ? remainingBalance : 0
+    };
+
+    await setDoc(doc(db, "users", "kerem-efe", "months", nextId), nextMonthData);
+    await setDoc(doc(db, "users", "kerem-efe", "settings", "activeMonth"), { monthId: nextId });
+    setCurrentMonth(nextId);
+  };
+
+  const handleAdd = async () => {
+    if (!newItem.amount) return;
+    const val = parseFloat(newItem.amount);
+
+    if (inputType === 'Income') {
+        const updatedIncome: Transaction[] = [...incomeItems, { amount: val, category: newItem.category, desc: newItem.desc, id: Date.now() }];
+        setIncomeItems(updatedIncome);
+        sync({ incomeItems: updatedIncome });
+    } else {
+        const updatedExpenses: Transaction[] = [...variableExpenses, { amount: val, category: newItem.category, desc: newItem.desc, id: Date.now() }];
+        setVariableExpenses(updatedExpenses);
+        sync({ variableExpenses: updatedExpenses });
+    }
+    setNewItem({ amount: "", category: inputType === 'Income' ? "Blocked" : "Groceries", desc: "" });
+  };
+
+  const deleteExpense = (id: number) => {
+    const updated = variableExpenses.filter(e => e.id !== id);
+    setVariableExpenses(updated);
+    sync({ variableExpenses: updated });
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main className="max-w-md mx-auto min-h-screen bg-white p-6 pb-64 font-sans">
+
+      {/* HEADER */}
+      <div className="flex justify-between items-center mb-6">
+        <div>
+            <h2 className="font-black text-2xl text-zinc-800 tracking-tight">
+              {currentMonth ? new Date(currentMonth + "-01").toLocaleString('default', { month: 'long', year: 'numeric' }) : "Loading..."}
+            </h2>
+            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest text-left">Fiscal Period</p>
+        </div>
+        <button onClick={startNextMonth} className="bg-blue-600 text-white px-5 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg active:scale-95 transition-transform">
+          New Month +
+        </button>
+      </div>
+
+      {/* BALANCE CARD */}
+      <div className="bg-zinc-900 rounded-[3rem] p-10 shadow-2xl mb-8 text-white text-center">
+        <span className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em]">Available Balance</span>
+        <h1 className="text-6xl font-black mt-2 mb-6 tracking-tighter">€{(totalIncome - totalSpent - savings).toFixed(2)}</h1>
+        <div className="flex justify-between text-[10px] font-bold text-zinc-400 border-t border-zinc-800 pt-6">
+          <span className="text-emerald-400">IN €{totalIncome.toFixed(0)}</span>
+          <span className="text-rose-400">OUT €{totalSpent.toFixed(0)}</span>
+          <span className="text-blue-400">SAVED €{savings.toFixed(0)}</span>
+        </div>
+      </div>
+
+      {/* FUNDS MANAGEMENT */}
+      <section className="bg-zinc-50 rounded-[2rem] p-6 mb-6 border border-zinc-100 grid grid-cols-2 gap-4">
+          <div className="text-center">
+              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1">Carried Forward</p>
+              <p className="text-lg font-black text-zinc-800">€{rollover.toFixed(2)}</p>
+          </div>
+          <div className="text-center border-l border-zinc-200">
+              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1">Set to Savings</p>
+              <input
+                type="number"
+                value={savings || ""}
+                placeholder="0"
+                onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                  const val = Number(e.target.value);
+                  setSavings(val);
+                  sync({savings: val});
+                }}
+                className="w-20 bg-transparent text-center font-black text-lg text-blue-600 outline-none"
+              />
+          </div>
+      </section>
+
+      {/* EXPANDABLE SECTIONS */}
+      <div className="space-y-3">
+        {Object.keys(fixedDefinitions).map(cat => (
+          <div key={cat} className="bg-zinc-50 rounded-[2rem] border border-zinc-100 overflow-hidden shadow-sm">
+            <button onClick={() => setExpanded(expanded === cat ? null : cat)} className="w-full flex justify-between p-6 font-black text-zinc-800 items-center">
+              <span>{cat}</span>
+              <span className="text-zinc-300 font-light text-2xl">{expanded === cat ? '−' : '+'}</span>
+            </button>
+            {expanded === cat && (
+              <div className="px-6 pb-6 space-y-4">
+                {fixedDefinitions[cat].map((item: FixedItem) => (
+                  <div key={item.id} className="flex justify-between items-center text-left">
+                    <div>
+                        <p className="text-sm font-bold text-zinc-600">{item.name}</p>
+                        <p className="text-[10px] font-bold text-zinc-400">€{item.amt}</p>
+                    </div>
+                    <button onClick={() => {
+                        const up = fixedPaid.includes(item.id) ? fixedPaid.filter(x => x !== item.id) : [...fixedPaid, item.id];
+                        setFixedPaid(up);
+                        sync({fixedPaid: up});
+                      }}
+                      className={`px-4 py-2 rounded-xl text-[10px] font-black transition-colors ${fixedPaid.includes(item.id) ? 'bg-emerald-500 text-white' : 'bg-zinc-200 text-zinc-400'}`}>
+                      {fixedPaid.includes(item.id) ? 'PAID ✓' : 'PAY'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {variableCategories.map(cat => (
+          <div key={cat} className="bg-white rounded-[2rem] border border-zinc-100 overflow-hidden shadow-sm">
+            <button onClick={() => setExpanded(expanded === cat ? null : cat)} className="w-full flex justify-between p-6 font-black text-zinc-800 items-center">
+              <div className="text-left">
+                  <p>{cat}</p>
+                  <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
+                    €{variableExpenses.filter(e => e.category === cat).reduce((a, b) => a + b.amount, 0).toFixed(2)} Total
+                  </p>
+              </div>
+              <span className="text-zinc-300 font-light text-2xl">{expanded === cat ? '−' : '+'}</span>
+            </button>
+            {expanded === cat && (
+              <div className="px-6 pb-6 space-y-2 border-t border-zinc-50 pt-4 bg-zinc-50/30">
+                {variableExpenses.filter(e => e.category === cat).map((exp: Transaction) => (
+                  <div key={exp.id} className="flex justify-between items-center text-left">
+                    <div className="flex-1">
+                        <p className="text-sm font-bold text-zinc-700">{exp.desc || 'Expense'}</p>
+                        <p className="text-[10px] text-zinc-400 font-medium italic">€{exp.amount.toFixed(2)}</p>
+                    </div>
+                    <button onClick={() => deleteExpense(exp.id)} className="text-[10px] text-zinc-300 font-bold hover:text-rose-500 p-2">DELETE</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* DOCK */}
+      <div className="fixed bottom-10 left-6 right-6 bg-zinc-900/95 backdrop-blur-xl rounded-[2.5rem] p-4 shadow-2xl z-50">
+        <div className="flex justify-center mb-4">
+          <div className="bg-zinc-800 p-1 rounded-full flex gap-1">
+            {(['Expense', 'Income'] as const).map(t => (
+              <button key={t} onClick={() => {setInputType(t); setNewItem({amount: "", category: t === 'Income' ? 'Blocked' : 'Groceries', desc: ""})}}
+                className={`px-6 py-2 rounded-full text-[10px] font-black transition-all ${inputType === t ? 'bg-white text-zinc-900 shadow-lg' : 'text-zinc-500'}`}>
+                {t.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            type="number"
+            placeholder="€"
+            className="w-1/3 bg-zinc-800 rounded-2xl p-4 text-white font-black outline-none"
+            value={newItem.amount}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setNewItem({...newItem, amount: e.target.value})}
+          />
+
+          <select
+            className="flex-1 bg-zinc-800 rounded-2xl p-4 text-white font-bold outline-none appearance-none text-center"
+            value={newItem.category}
+            onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+              const cat = e.target.value;
+              let autoAmount = "";
+              if (inputType === 'Income') {
+                if (cat === 'Blocked') autoAmount = "1050";
+                if (cat === 'Famiris') autoAmount = "266.32";
+                if (cat === 'KYK') autoAmount = "190";
+              }
+              setNewItem({ ...newItem, category: cat, amount: autoAmount });
+            }}
+          >
+            {inputType === 'Expense'
+              ? variableCategories.map(c => <option key={c} value={c}>{c}</option>)
+              : ['Blocked', 'Famiris', 'KYK', 'Other'].map(c => <option key={c} value={c}>{c}</option>)
+            }
+          </select>
+          <button onClick={handleAdd} className="bg-blue-600 hover:bg-blue-500 w-14 h-14 rounded-2xl text-white text-3xl font-light transition-transform active:scale-95">+</button>
+        </div>
+
+        <input
+          placeholder="Add description..."
+          className="w-full mt-2 bg-zinc-800 rounded-xl p-3 text-xs text-white outline-none border border-zinc-700"
+          value={newItem.desc}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setNewItem({...newItem, desc: e.target.value})}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
