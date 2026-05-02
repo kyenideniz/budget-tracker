@@ -1,14 +1,15 @@
 "use client";
 import React, { useState, useEffect, ChangeEvent } from 'react';
 import { db } from '@/lib/firebase';
-import { doc, setDoc, onSnapshot, getDoc, DocumentData } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot, getDoc } from 'firebase/firestore';
 
-// 1. DEFINE TYPES
+// 1. STRICT TYPE DEFINITIONS
 interface Transaction {
   id: number;
   amount: number;
   category: string;
   desc?: string;
+  account?: 'KBC' | 'TEB';
 }
 
 interface FixedItem {
@@ -34,6 +35,7 @@ export default function BudgetTracker() {
   const [rollover, setRollover] = useState<number>(0);
 
   const [inputType, setInputType] = useState<'Expense' | 'Income'>('Expense');
+  const [account, setAccount] = useState<'KBC' | 'TEB'>('KBC');
   const [newItem, setNewItem] = useState({ amount: "", category: "Groceries", desc: "" });
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -91,22 +93,31 @@ export default function BudgetTracker() {
     .filter((item) => fixedPaid.includes(item.id))
     .reduce((a, b) => a + b.amt, 0);
   const totalSpent = paidFixedTotal + variableExpenses.reduce((a, b) => a + b.amount, 0);
+  const availableBalance = totalIncome - totalSpent - savings;
+
+  // Split calculations
+  const tebIncome = incomeItems.filter(i => i.account === 'TEB').reduce((a, b) => a + b.amount, 0);
+  const tebSpent = variableExpenses.filter(e => e.account === 'TEB').reduce((a, b) => a + b.amount, 0);
+  const tebAvailable = tebIncome - tebSpent;
+  const kbcAvailable = availableBalance - tebAvailable;
 
   // 5. ACTIONS
   const startNextMonth = async () => {
-    if (!window.confirm("Start new month? This will carry your current balance forward.")) return;
+    if (!window.confirm("Start new month? KBC and TEB leftovers will carry separately.")) return;
 
-    const remainingBalance = totalIncome - totalSpent - savings;
     const date = new Date(currentMonth + "-02");
     date.setMonth(date.getMonth() + 1);
     const nextId = date.toISOString().slice(0, 7);
 
     const nextMonthData: MonthData = {
       fixedPaid: ['amazon', 'icloud'],
-      incomeItems: [],
+      incomeItems: [
+        { id: Date.now(), amount: kbcAvailable > 0 ? kbcAvailable : 0, category: 'Other', desc: 'KBC Rollover', account: 'KBC' },
+        { id: Date.now() + 1, amount: tebAvailable > 0 ? tebAvailable : 0, category: 'Other', desc: 'TEB Rollover', account: 'TEB' }
+      ],
       variableExpenses: [],
       savings: 0,
-      rollover: remainingBalance > 0 ? remainingBalance : 0
+      rollover: 0
     };
 
     await setDoc(doc(db, "users", "kerem-efe", "months", nextId), nextMonthData);
@@ -115,19 +126,27 @@ export default function BudgetTracker() {
   };
 
   const handleAdd = async () => {
-    if (!newItem.amount) return;
     const val = parseFloat(newItem.amount);
+    if (isNaN(val)) return;
+
+    const newTransaction: Transaction = {
+      amount: val,
+      category: newItem.category,
+      desc: newItem.desc,
+      account: account,
+      id: Date.now()
+    };
 
     if (inputType === 'Income') {
-        const updatedIncome: Transaction[] = [...incomeItems, { amount: val, category: newItem.category, desc: newItem.desc, id: Date.now() }];
-        setIncomeItems(updatedIncome);
-        sync({ incomeItems: updatedIncome });
+        const updated = [...incomeItems, newTransaction];
+        setIncomeItems(updated);
+        sync({ incomeItems: updated });
     } else {
-        const updatedExpenses: Transaction[] = [...variableExpenses, { amount: val, category: newItem.category, desc: newItem.desc, id: Date.now() }];
-        setVariableExpenses(updatedExpenses);
-        sync({ variableExpenses: updatedExpenses });
+        const updated = [...variableExpenses, newTransaction];
+        setVariableExpenses(updated);
+        sync({ variableExpenses: updated });
     }
-    setNewItem({ amount: "", category: inputType === 'Income' ? "Blocked" : "Groceries", desc: "" });
+    setNewItem({ amount: "", category: inputType === 'Income' ? "Other" : "Groceries", desc: "" });
   };
 
   const deleteExpense = (id: number) => {
@@ -140,12 +159,12 @@ export default function BudgetTracker() {
     <main className="max-w-md mx-auto min-h-screen bg-white p-6 pb-64 font-sans">
 
       {/* HEADER */}
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex justify-between items-center mb-6 text-left">
         <div>
             <h2 className="font-black text-2xl text-zinc-800 tracking-tight">
               {currentMonth ? new Date(currentMonth + "-01").toLocaleString('default', { month: 'long', year: 'numeric' }) : "Loading..."}
             </h2>
-            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest text-left">Fiscal Period</p>
+            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Fiscal Period</p>
         </div>
         <button onClick={startNextMonth} className="bg-blue-600 text-white px-5 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg active:scale-95 transition-transform">
           New Month +
@@ -155,7 +174,19 @@ export default function BudgetTracker() {
       {/* BALANCE CARD */}
       <div className="bg-zinc-900 rounded-[3rem] p-10 shadow-2xl mb-8 text-white text-center">
         <span className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em]">Available Balance</span>
-        <h1 className="text-6xl font-black mt-2 mb-6 tracking-tighter">€{(totalIncome - totalSpent - savings).toFixed(2)}</h1>
+        <h1 className="text-6xl font-black mt-2 mb-3 tracking-tighter">€{availableBalance.toFixed(2)}</h1>
+
+        <div className="flex justify-center gap-3 mb-6">
+            <div className="bg-blue-500/10 border border-blue-500/20 px-3 py-1.5 rounded-full flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+                <span className="text-[10px] font-black tracking-widest text-blue-400">KBC €{kbcAvailable.toFixed(2)}</span>
+            </div>
+            <div className="bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                <span className="text-[10px] font-black tracking-widest text-emerald-400">TEB €{tebAvailable.toFixed(2)}</span>
+            </div>
+        </div>
+
         <div className="flex justify-between text-[10px] font-bold text-zinc-400 border-t border-zinc-800 pt-6">
           <span className="text-emerald-400">IN €{totalIncome.toFixed(0)}</span>
           <span className="text-rose-400">OUT €{totalSpent.toFixed(0)}</span>
@@ -175,7 +206,7 @@ export default function BudgetTracker() {
                 type="number"
                 value={savings || ""}
                 placeholder="0"
-                onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                onChange={(e) => {
                   const val = Number(e.target.value);
                   setSavings(val);
                   sync({savings: val});
@@ -185,8 +216,9 @@ export default function BudgetTracker() {
           </div>
       </section>
 
-      {/* EXPANDABLE SECTIONS */}
+      {/* SECTIONS: Fixed + Variable */}
       <div className="space-y-3">
+        {/* Fixed Sections */}
         {Object.keys(fixedDefinitions).map(cat => (
           <div key={cat} className="bg-zinc-50 rounded-[2rem] border border-zinc-100 overflow-hidden shadow-sm">
             <button onClick={() => setExpanded(expanded === cat ? null : cat)} className="w-full flex justify-between p-6 font-black text-zinc-800 items-center">
@@ -195,7 +227,7 @@ export default function BudgetTracker() {
             </button>
             {expanded === cat && (
               <div className="px-6 pb-6 space-y-4">
-                {fixedDefinitions[cat].map((item: FixedItem) => (
+                {fixedDefinitions[cat].map((item) => (
                   <div key={item.id} className="flex justify-between items-center text-left">
                     <div>
                         <p className="text-sm font-bold text-zinc-600">{item.name}</p>
@@ -216,6 +248,7 @@ export default function BudgetTracker() {
           </div>
         ))}
 
+        {/* Variable Sections (RESTORED) */}
         {variableCategories.map(cat => (
           <div key={cat} className="bg-white rounded-[2rem] border border-zinc-100 overflow-hidden shadow-sm">
             <button onClick={() => setExpanded(expanded === cat ? null : cat)} className="w-full flex justify-between p-6 font-black text-zinc-800 items-center">
@@ -229,10 +262,13 @@ export default function BudgetTracker() {
             </button>
             {expanded === cat && (
               <div className="px-6 pb-6 space-y-2 border-t border-zinc-50 pt-4 bg-zinc-50/30">
-                {variableExpenses.filter(e => e.category === cat).map((exp: Transaction) => (
+                {variableExpenses.filter(e => e.category === cat).map((exp) => (
                   <div key={exp.id} className="flex justify-between items-center text-left">
                     <div className="flex-1">
-                        <p className="text-sm font-bold text-zinc-700">{exp.desc || 'Expense'}</p>
+                        <div className="flex items-center gap-2">
+                           <p className="text-sm font-bold text-zinc-700">{exp.desc || 'Expense'}</p>
+                           {exp.account && <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${exp.account === 'KBC' ? 'bg-blue-100 text-blue-600' : 'bg-emerald-100 text-emerald-600'}`}>{exp.account}</span>}
+                        </div>
                         <p className="text-[10px] text-zinc-400 font-medium italic">€{exp.amount.toFixed(2)}</p>
                     </div>
                     <button onClick={() => deleteExpense(exp.id)} className="text-[10px] text-zinc-300 font-bold hover:text-rose-500 p-2">DELETE</button>
@@ -246,12 +282,21 @@ export default function BudgetTracker() {
 
       {/* DOCK */}
       <div className="fixed bottom-10 left-6 right-6 bg-zinc-900/95 backdrop-blur-xl rounded-[2.5rem] p-4 shadow-2xl z-50">
-        <div className="flex justify-center mb-4">
+        <div className="flex justify-between items-center mb-4">
           <div className="bg-zinc-800 p-1 rounded-full flex gap-1">
             {(['Expense', 'Income'] as const).map(t => (
-              <button key={t} onClick={() => {setInputType(t); setNewItem({amount: "", category: t === 'Income' ? 'Blocked' : 'Groceries', desc: ""})}}
-                className={`px-6 py-2 rounded-full text-[10px] font-black transition-all ${inputType === t ? 'bg-white text-zinc-900 shadow-lg' : 'text-zinc-500'}`}>
+              <button key={t} onClick={() => setInputType(t)}
+                className={`px-5 py-2 rounded-full text-[10px] font-black transition-all ${inputType === t ? 'bg-white text-zinc-900 shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}>
                 {t.toUpperCase()}
+              </button>
+            ))}
+          </div>
+
+          <div className="bg-zinc-800 p-1 rounded-full flex gap-1">
+            {(['KBC', 'TEB'] as const).map(a => (
+              <button key={a} onClick={() => setAccount(a)}
+                className={`px-4 py-2 rounded-full text-[10px] font-black transition-all ${account === a ? (a === 'KBC' ? 'bg-blue-600 text-white shadow-lg' : 'bg-emerald-500 text-white shadow-lg') : 'text-zinc-500 hover:text-zinc-300'}`}>
+                {a}
               </button>
             ))}
           </div>
@@ -263,22 +308,12 @@ export default function BudgetTracker() {
             placeholder="€"
             className="w-1/3 bg-zinc-800 rounded-2xl p-4 text-white font-black outline-none"
             value={newItem.amount}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setNewItem({...newItem, amount: e.target.value})}
+            onChange={(e) => setNewItem({...newItem, amount: e.target.value})}
           />
-
           <select
             className="flex-1 bg-zinc-800 rounded-2xl p-4 text-white font-bold outline-none appearance-none text-center"
             value={newItem.category}
-            onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-              const cat = e.target.value;
-              let autoAmount = "";
-              if (inputType === 'Income') {
-                if (cat === 'Blocked') autoAmount = "1050";
-                if (cat === 'Famiris') autoAmount = "266.32";
-                if (cat === 'KYK') autoAmount = "190";
-              }
-              setNewItem({ ...newItem, category: cat, amount: autoAmount });
-            }}
+            onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
           >
             {inputType === 'Expense'
               ? variableCategories.map(c => <option key={c} value={c}>{c}</option>)
@@ -292,7 +327,7 @@ export default function BudgetTracker() {
           placeholder="Add description..."
           className="w-full mt-2 bg-zinc-800 rounded-xl p-3 text-xs text-white outline-none border border-zinc-700"
           value={newItem.desc}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => setNewItem({...newItem, desc: e.target.value})}
+          onChange={(e) => setNewItem({...newItem, desc: e.target.value})}
         />
       </div>
     </main>

@@ -2,42 +2,62 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 
-// We'll use a direct string path to keep TypeScript happy
 const SETTINGS_STR = "users/kerem-efe/settings/activeMonth";
 
 export async function GET() {
   try {
     const settingsRef = doc(db, SETTINGS_STR);
     const settingsSnap = await getDoc(settingsRef);
-
     if (!settingsSnap.exists()) return NextResponse.json({ error: "No settings" }, { status: 404 });
 
     const { monthId, lastNotifiedLevel = 0 } = settingsSnap.data();
 
-    // Using string template for the month path too
     const monthRef = doc(db, `users/kerem-efe/months/${monthId}`);
     const monthSnap = await getDoc(monthRef);
-
     if (!monthSnap.exists()) return NextResponse.json({ error: "No month data" });
 
     const data = monthSnap.data();
-    const totalIn = (data.incomeItems || []).reduce((a: number, b: any) => a + b.amount, 0) + Number(data.rollover || 0);
-    const totalVar = (data.variableExpenses || []).reduce((a: number, b: any) => a + b.amount, 0);
 
-    const housingTotal = 773 + 164;
-    let spendableBudget = totalIn - (data.savings || 0) - housingTotal;
+    // 1. Initial Balances (from Income & Rollover)
+    const income = data.incomeItems || [];
+    let kbcTotal = income.filter((i:any) => i.desc?.includes("KBC") || i.account === "KBC").reduce((a:number, b:any) => a + b.amount, 0);
+    let tebTotal = income.filter((i:any) => i.desc?.includes("TEB") || i.account === "TEB").reduce((a:number, b:any) => a + b.amount, 0);
 
-    if (spendableBudget <= 0) spendableBudget = totalIn;
+    // Add any unassigned income/rollover to KBC by default
+    const unassignedIncome = income.filter((i:any) => !i.desc?.includes("KBC") && !i.desc?.includes("TEB") && !i.account).reduce((a:number, b:any) => a + b.amount, 0);
+    kbcTotal += unassignedIncome + Number(data.rollover || 0);
 
-    const percent = spendableBudget > 0 ? Math.floor((totalVar / spendableBudget) * 100) : 0;
-    const remaining = spendableBudget - totalVar;
+    let spendableBudget = kbcTotal + tebTotal - (data.savings || 0) - (773 + 164);
+    if (spendableBudget <= 0) spendableBudget = kbcTotal + tebTotal;
 
+    // 2. Subtract Variable Expenses
+    const expenses = data.variableExpenses || [];
+    let totalSpent = 0;
+    expenses.forEach((e:any) => {
+      totalSpent += e.amount;
+      if (e.account === "TEB" || e.desc?.includes("TEB")) tebTotal -= e.amount;
+      else kbcTotal -= e.amount;
+    });
+
+    const percentSpent = spendableBudget > 0 ? Math.min(Math.floor((totalSpent / spendableBudget) * 100), 100) : 0;
+
+    // 3. Split-Bar Calculations (Ratio of actual remaining pool)
+    const actualRemainingPool = Math.max(kbcTotal + tebTotal, 1);
+    const kbcRatio = Math.max(kbcTotal / actualRemainingPool, 0);
+    const tebRatio = Math.max(tebTotal / actualRemainingPool, 0);
+
+    // KBC and TEB bars take up whatever % of the progress bar is NOT spent yet
+    const remainingPercent = 100 - percentSpent;
+    const kbcPercent = remainingPercent * kbcRatio;
+    const tebPercent = remainingPercent * tebRatio;
+
+    // 4. Notification Logic
     let currentLevel = 0;
-    if (percent >= 90 || remaining <= 50) currentLevel = 3;
-    else if (percent >= 75 || remaining <= 100) currentLevel = 2;
-    else if (percent >= 50) currentLevel = 1;
+    if (percentSpent >= 90) currentLevel = 3;
+    else if (percentSpent >= 75) currentLevel = 2;
+    else if (percentSpent >= 50) currentLevel = 1;
 
-    if (percent < 5 && lastNotifiedLevel > 0) {
+    if (percentSpent < 5 && lastNotifiedLevel > 0) {
         await updateDoc(settingsRef, { lastNotifiedLevel: 0 });
     }
 
@@ -46,18 +66,19 @@ export async function GET() {
         notification = {
             level: currentLevel,
             title: currentLevel === 3 ? "Danger Zone! 🚩" : "Budget Update ⚠️",
-            body: currentLevel === 3 ? `You've used ${percent}%! €${remaining.toFixed(2)} left.` : `You've used ${percent}% of your flexible budget.`
+            body: `${percentSpent}% used. KBC: €${kbcTotal.toFixed(0)}, TEB: €${tebTotal.toFixed(0)}`
         };
     }
 
     return NextResponse.json({
-      spent: totalVar.toFixed(2),
-      budget: spendableBudget.toFixed(2),
-      percent: percent.toString(),
-      notification: notification
+      percentSpent,
+      kbcPercent: kbcPercent.toFixed(2),
+      tebPercent: tebPercent.toFixed(2),
+      kbcBalance: kbcTotal.toFixed(2),
+      tebBalance: tebTotal.toFixed(2),
+      notification
     });
   } catch (e) {
-    console.error(e);
     return NextResponse.json({ error: "Fail" }, { status: 500 });
   }
 }
