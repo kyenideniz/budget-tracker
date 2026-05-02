@@ -285,12 +285,12 @@ export default function BudgetTracker() {
       </div>
 
       {/* DOCK */}
-      <div className="fixed bottom-10 left-6 right-6 bg-zinc-900/95 backdrop-blur-xl rounded-[2.5rem] p-4 shadow-2xl z-50">
+      <div className="fixed bottom-10 left-6 right-6 bg-zinc-900/95 backdrop-blur-xl rounded-4xl p-4 shadow-2xl z-50">
         <div className="flex justify-between items-center mb-4">
           <div className="bg-zinc-800 p-1 rounded-full flex gap-1">
             {(['Expense', 'Income'] as const).map(t => (
               <button key={t} onClick={() => setInputType(t)}
-                className={`px-5 py-2 rounded-full text-[10px] font-black transition-all ${inputType === t ? 'bg-white text-zinc-900 shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}>
+                className={`px-5 py-2 rounded-2xl text-[10px] font-black transition-all ${inputType === t ? 'bg-white text-zinc-900 shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}>
                 {t.toUpperCase()}
               </button>
             ))}
@@ -329,7 +329,7 @@ export default function BudgetTracker() {
 
         <input
           placeholder="Add description..."
-          className="w-full mt-2 bg-zinc-800 rounded-xl p-3 text-xs text-white outline-none border border-zinc-700"
+          className="w-full mt-2 bg-zinc-800 rounded-2xl p-3 text-xs text-white outline-none border border-zinc-700"
           value={newItem.desc}
           onChange={(e) => setNewItem({...newItem, desc: e.target.value})}
         />
