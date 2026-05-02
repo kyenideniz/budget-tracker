@@ -75,7 +75,7 @@ export default function BudgetTracker() {
   const sync = (updates: Partial<MonthData>) =>
     setDoc(doc(db, "users", "kerem-efe", "months", currentMonth), updates, { merge: true });
 
-  // 4. DEFINITIONS & MATH
+  // 4. MATH & CALCULATIONS
   const fixedDefinitions: Record<string, FixedItem[]> = {
     Housing: [{ id: 'rent', name: 'Rent', amt: 773 }, { id: 'bills', name: 'Bills', amt: 164 }],
     Subscriptions: [
@@ -88,6 +88,11 @@ export default function BudgetTracker() {
 
   const variableCategories = ['Groceries', 'Eating Out', 'Coffee', 'Transport', 'Travel', 'Fun', 'Other'];
 
+  // Calculate Total Rollover (Sum of field + any rollover income items)
+  const rolloverTotal = incomeItems
+    .filter(i => i.desc === "KBC Rollover" || i.desc === "TEB Rollover")
+    .reduce((a, b) => a + b.amount, 0) + Number(rollover);
+
   const totalIncome = incomeItems.reduce((a, b) => a + b.amount, 0) + Number(rollover);
   const paidFixedTotal = Object.values(fixedDefinitions).flat()
     .filter((item) => fixedPaid.includes(item.id))
@@ -95,9 +100,9 @@ export default function BudgetTracker() {
   const totalSpent = paidFixedTotal + variableExpenses.reduce((a, b) => a + b.amount, 0);
   const availableBalance = totalIncome - totalSpent - savings;
 
-  // Split calculations
-  const tebIncome = incomeItems.filter(i => i.account === 'TEB').reduce((a, b) => a + b.amount, 0);
-  const tebSpent = variableExpenses.filter(e => e.account === 'TEB').reduce((a, b) => a + b.amount, 0);
+  // Account Split Calculations
+  const tebIncome = incomeItems.filter(i => i.account === 'TEB' || i.desc?.includes('TEB')).reduce((a, b) => a + b.amount, 0);
+  const tebSpent = variableExpenses.filter(e => e.account === 'TEB' || e.desc?.includes('TEB')).reduce((a, b) => a + b.amount, 0);
   const tebAvailable = tebIncome - tebSpent;
   const kbcAvailable = availableBalance - tebAvailable;
 
@@ -159,8 +164,8 @@ export default function BudgetTracker() {
     <main className="max-w-md mx-auto min-h-screen bg-white p-6 pb-64 font-sans">
 
       {/* HEADER */}
-      <div className="flex justify-between items-center mb-6 text-left">
-        <div>
+      <div className="flex justify-between items-center mb-6">
+        <div className="text-left">
             <h2 className="font-black text-2xl text-zinc-800 tracking-tight">
               {currentMonth ? new Date(currentMonth + "-01").toLocaleString('default', { month: 'long', year: 'numeric' }) : "Loading..."}
             </h2>
@@ -176,6 +181,7 @@ export default function BudgetTracker() {
         <span className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em]">Available Balance</span>
         <h1 className="text-6xl font-black mt-2 mb-3 tracking-tighter">€{availableBalance.toFixed(2)}</h1>
 
+        {/* Account Split Bubbles */}
         <div className="flex justify-center gap-3 mb-6">
             <div className="bg-blue-500/10 border border-blue-500/20 px-3 py-1.5 rounded-full flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
@@ -194,11 +200,11 @@ export default function BudgetTracker() {
         </div>
       </div>
 
-      {/* FUNDS MANAGEMENT */}
+      {/* FUNDS MANAGEMENT (Updated Display) */}
       <section className="bg-zinc-50 rounded-[2rem] p-6 mb-6 border border-zinc-100 grid grid-cols-2 gap-4">
           <div className="text-center">
               <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1">Carried Forward</p>
-              <p className="text-lg font-black text-zinc-800">€{rollover.toFixed(2)}</p>
+              <p className="text-lg font-black text-zinc-800">€{rolloverTotal.toFixed(2)}</p>
           </div>
           <div className="text-center border-l border-zinc-200">
               <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1">Set to Savings</p>
@@ -216,9 +222,8 @@ export default function BudgetTracker() {
           </div>
       </section>
 
-      {/* SECTIONS: Fixed + Variable */}
+      {/* SECTIONS */}
       <div className="space-y-3">
-        {/* Fixed Sections */}
         {Object.keys(fixedDefinitions).map(cat => (
           <div key={cat} className="bg-zinc-50 rounded-[2rem] border border-zinc-100 overflow-hidden shadow-sm">
             <button onClick={() => setExpanded(expanded === cat ? null : cat)} className="w-full flex justify-between p-6 font-black text-zinc-800 items-center">
@@ -248,7 +253,6 @@ export default function BudgetTracker() {
           </div>
         ))}
 
-        {/* Variable Sections (RESTORED) */}
         {variableCategories.map(cat => (
           <div key={cat} className="bg-white rounded-[2rem] border border-zinc-100 overflow-hidden shadow-sm">
             <button onClick={() => setExpanded(expanded === cat ? null : cat)} className="w-full flex justify-between p-6 font-black text-zinc-800 items-center">
