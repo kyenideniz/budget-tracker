@@ -98,6 +98,7 @@ export default function BudgetTracker() {
     .filter((item) => fixedPaid.includes(item.id))
     .reduce((a, b) => a + b.amt, 0);
   const totalSpent = paidFixedTotal + variableExpenses.reduce((a, b) => a + b.amount, 0);
+  const rentlessSpent = variableExpenses.reduce((a, b) => a + b.amount, 0);
   const availableBalance = totalIncome - totalSpent - savings;
 
   // Account Split Calculations
@@ -196,7 +197,7 @@ export default function BudgetTracker() {
         <div className="flex justify-between text-[10px] font-bold text-zinc-400 border-t border-zinc-800 pt-6">
           <span className="text-emerald-400">IN €{totalIncome.toFixed(0)}</span>
           <span className="text-rose-400">OUT €{totalSpent.toFixed(0)}</span>
-          <span className="text-blue-400">SAVED €{savings.toFixed(0)}</span>
+          <span className="text-blue-400">Spent €{rentlessSpent.toFixed(0)}</span>
         </div>
       </div>
 
