@@ -1,95 +1,86 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-
-const SETTINGS_STR = "users/kerem-efe/settings/activeMonth";
+import { doc, getDoc } from 'firebase/firestore';
 
 export async function GET() {
   try {
-    const settingsRef = doc(db, SETTINGS_STR);
+    // 1. GET ACTIVE MONTH
+    const settingsRef = doc(db, "users", "kerem-efe", "settings", "activeMonth");
     const settingsSnap = await getDoc(settingsRef);
-    if (!settingsSnap.exists()) return NextResponse.json({ error: "No settings" }, { status: 404 });
+    const currentMonth = settingsSnap.exists() ? settingsSnap.data().monthId : new Date().toISOString().slice(0, 7);
 
-    const { monthId, lastNotifiedLevel = 0 } = settingsSnap.data();
-
-    const monthRef = doc(db, `users/kerem-efe/months/${monthId}`);
+    // 2. FETCH DATA
+    const monthRef = doc(db, "users", "kerem-efe", "months", currentMonth);
     const monthSnap = await getDoc(monthRef);
-    if (!monthSnap.exists()) return NextResponse.json({ error: "No month data" });
+
+    if (!monthSnap.exists()) {
+      return NextResponse.json({ error: "No data" }, { status: 404 });
+    }
 
     const data = monthSnap.data();
+    const incomeItems = data.incomeItems || [];
+    const variableExpenses = data.variableExpenses || [];
+    const fixedPaid = data.fixedPaid || [];
+    const rollover = data.rollover || 0;
+    const savings = data.savings || 0;
 
-    // 1. Initial Balances (from Income & Rollover)
-    const income = data.incomeItems || [];
-    let kbcTotal = income.filter((i:any) => i.desc?.includes("KBC") || i.account === "KBC").reduce((a:number, b:any) => a + b.amount, 0);
-    let tebTotal = income.filter((i:any) => i.desc?.includes("TEB") || i.account === "TEB").reduce((a:number, b:any) => a + b.amount, 0);
+    // 3. DEFINITIONS
+    const fixedDefinitions = {
+      Housing: [
+        { id: 'rent', amt: 773 },
+        { id: 'bills', amt: 164 }
+      ],
+      Subscriptions: [
+        { id: 'phone', amt: 59.99 },
+        { id: 'icloud', amt: 2.99 },
+        { id: 'amazon', amt: 2.99 }
+      ]
+    };
 
-    // Add any unassigned income/rollover to KBC by default
-    const unassignedIncome = income.filter((i:any) => !i.desc?.includes("KBC") && !i.desc?.includes("TEB") && !i.account).reduce((a:number, b:any) => a + b.amount, 0);
-    kbcTotal += unassignedIncome + Number(data.rollover || 0);
+    // 4. CORE MATH
+    const totalIncome = incomeItems.reduce((a: any, b: any) => a + b.amount, 0) + Number(rollover);
+    const variableSpent = variableExpenses.reduce((a: any, b: any) => a + b.amount, 0);
 
-    let spendableBudget = kbcTotal + tebTotal - (data.savings || 0) - (773 + 164);
-    if (spendableBudget <= 0) spendableBudget = kbcTotal + tebTotal;
+    // Calculate only what has been marked as PAID
+    const fixedCostsPaid = Object.values(fixedDefinitions).flat()
+      .filter(item => fixedPaid.includes(item.id))
+      .reduce((a, b) => a + b.amt, 0);
 
-    // 2. Subtract Variable Expenses
-    const expenses = data.variableExpenses || [];
-    let totalSpent = 0;
-    expenses.forEach((e:any) => {
-      totalSpent += e.amount;
-      if (e.account === "TEB" || e.desc?.includes("TEB")) tebTotal -= e.amount;
-      else kbcTotal -= e.amount;
-    });
+    // SPENDABLE POOL LOGIC (Income minus Fixed Bills)
+    const spendablePool = totalIncome - fixedCostsPaid;
+    const percentSpent = spendablePool > 0
+      ? Math.round((variableSpent / spendablePool) * 100)
+      : 100;
 
-    const percentSpent = spendableBudget > 0 ? Math.min(Math.floor((totalSpent / spendableBudget) * 100), 100) : 0;
+    // 5. EXPLICIT BANK ACCOUNT BALANCES
+    // TEB Calculation
+    const tebIncome = incomeItems.filter((i: any) => i.account === 'TEB' || i.desc?.includes('TEB')).reduce((a: any, b: any) => a + b.amount, 0);
+    const tebSpent = variableExpenses.filter((e: any) => e.account === 'TEB').reduce((a: any, b: any) => a + b.amount, 0);
+    const tebAvailable = tebIncome - tebSpent;
 
-    // 3. Split-Bar Calculations (Ratio of actual remaining pool)
-    const actualRemainingPool = Math.max(kbcTotal + tebTotal, 1);
-    const kbcRatio = Math.max(kbcTotal / actualRemainingPool, 0);
-    const tebRatio = Math.max(tebTotal / actualRemainingPool, 0);
+    // KBC Calculation (Income - Variable Spent - Fixed Bills - Savings)
+    const kbcIncome = incomeItems.filter((i: any) => i.account === 'KBC' || i.desc?.includes('KBC')).reduce((a: any, b: any) => a + b.amount, 0) + Number(rollover);
+    const kbcVariableSpent = variableExpenses.filter((e: any) => e.account === 'KBC').reduce((a: any, b: any) => a + b.amount, 0);
 
-    // KBC and TEB bars take up whatever % of the progress bar is NOT spent yet
+    // This explicitly reduces KBC balance by your fixed bills if they are PAID
+    const kbcAvailable = kbcIncome - kbcVariableSpent - fixedCostsPaid - savings;
+
+    // 6. WIDGET RATIOS
+    const totalAvailable = kbcAvailable + tebAvailable;
+    const kbcRatio = totalAvailable > 0 ? kbcAvailable / totalAvailable : 0;
+    const tebRatio = totalAvailable > 0 ? tebAvailable / totalAvailable : 0;
     const remainingPercent = 100 - percentSpent;
-    const kbcPercent = remainingPercent * kbcRatio;
-    const tebPercent = remainingPercent * tebRatio;
-
-    // 4. Notification Logic
-    let currentLevel = 0;
-    if (percentSpent >= 90) currentLevel = 3;
-    else if (percentSpent >= 75) currentLevel = 2;
-    else if (percentSpent >= 50) currentLevel = 1;
-
-    if (percentSpent < 5 && lastNotifiedLevel > 0) {
-        await updateDoc(settingsRef, { lastNotifiedLevel: 0 });
-    }
-
-    let notification = null;
-    if (currentLevel > lastNotifiedLevel) {
-        notification = {
-            level: currentLevel,
-            title: currentLevel === 3 ? "Danger Zone! 🚩" : "Budget Update ⚠️",
-            body: `${percentSpent}% used. KBC: €${kbcTotal.toFixed(0)}, TEB: €${tebTotal.toFixed(0)}`
-        };
-    }
 
     return NextResponse.json({
-      percentSpent,
-      kbcPercent: kbcPercent.toFixed(2),
-      tebPercent: tebPercent.toFixed(2),
-      kbcBalance: kbcTotal.toFixed(2),
-      tebBalance: tebTotal.toFixed(2),
-      notification
+      percentSpent: Math.min(percentSpent, 100),
+      kbcPercent: (remainingPercent * Math.max(kbcRatio, 0)).toFixed(2),
+      tebPercent: (remainingPercent * Math.max(tebRatio, 0)).toFixed(2),
+      kbcBalance: kbcAvailable.toFixed(2),
+      tebBalance: tebAvailable.toFixed(2),
+      notification: null
     });
-  } catch (e) {
-    return NextResponse.json({ error: "Fail" }, { status: 500 });
-  }
-}
 
-export async function POST(request: Request) {
-    try {
-        const { level } = await request.json();
-        const settingsRef = doc(db, SETTINGS_STR);
-        await updateDoc(settingsRef, { lastNotifiedLevel: level });
-        return NextResponse.json({ success: true });
-    } catch (e) {
-        return NextResponse.json({ error: "Update failed" }, { status: 500 });
-    }
+  } catch (error) {
+    return NextResponse.json({ error: "Server Error" }, { status: 500 });
+  }
 }
