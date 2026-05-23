@@ -1,7 +1,10 @@
 "use client";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useBudgetData, type Transaction } from "@/hooks/useBudgetData";
-import { VARIABLE_CATEGORIES, type QuickPreset } from "@/lib/constants";
+import { useAuth } from "@/hooks/useAuth";
+import { useUserProfile } from "@/hooks/useUserProfile";
+import { signOut } from "@/lib/auth";
+import { VARIABLE_CATEGORIES, type QuickPreset, type FixedExpenses } from "@/lib/constants";
 import MonthHeader from "@/components/MonthHeader";
 import BalanceCard from "@/components/BalanceCard";
 import FundsRow from "@/components/FundsRow";
@@ -12,8 +15,65 @@ import IncomeSection from "@/components/IncomeSection";
 import AddDock from "@/components/AddDock";
 import ConfirmSheet from "@/components/ConfirmSheet";
 import UndoToast from "@/components/UndoToast";
+import LoginScreen from "@/components/LoginScreen";
+import SetupWizard from "@/components/SetupWizard";
 
-export default function BudgetTracker() {
+// ── Auth gate wrapper ──────────────────────────────────────────────────────
+export default function App() {
+  const { user, loading: authLoading } = useAuth();
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-zinc-200 border-t-zinc-900 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen onSuccess={() => {}} />;
+  }
+
+  return <AuthenticatedApp uid={user.uid} />;
+}
+
+// ── Authenticated app (profile + data) ────────────────────────────────────
+function AuthenticatedApp({ uid }: { uid: string }) {
+  const { profile, profileLoading, isNewUser, saveProfile } = useUserProfile(uid);
+
+  if (profileLoading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-zinc-200 border-t-zinc-900 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (isNewUser || !profile) {
+    return <SetupWizard uid={uid} onComplete={saveProfile} />;
+  }
+
+  const dataPath = profile.dataPath ?? uid;
+  const accounts = profile.accounts ?? ["KBC", "TEB"];
+  const fixedExpenses = profile.fixedExpenses;
+
+  return <BudgetTracker uid={uid} dataPath={dataPath} accounts={accounts} displayName={profile.displayName} fixedExpenses={fixedExpenses} />;
+}
+
+// ── Main budget tracker ────────────────────────────────────────────────────
+function BudgetTracker({
+  uid,
+  dataPath,
+  accounts,
+  displayName,
+  fixedExpenses,
+}: {
+  uid: string;
+  dataPath: string;
+  accounts: string[];
+  displayName: string;
+  fixedExpenses?: FixedExpenses;
+}) {
   const {
     viewingMonth,
     activeMonth,
@@ -47,9 +107,9 @@ export default function BudgetTracker() {
     removeBudgetLimit,
     addPreset,
     deletePreset,
-  } = useBudgetData();
+  } = useBudgetData({ uid, dataPath, accounts, fixedExpenses });
 
-  // ── Accordion state ────────────────────────────────────────────────────────
+  // ── Accordion state ────────────────────────────────────────────────────────────
   const [expanded, setExpanded] = useState<string | null>(null);
   const toggleExpanded = (key: string) =>
     setExpanded((prev) => (prev === key ? null : key));
@@ -152,7 +212,7 @@ export default function BudgetTracker() {
     [addIncome, addExpense]
   );
 
-  // ── Hide Balance state (syncs BalanceCard, FundsRow & SpendingChart) ───────
+  // ── Hide Balance state ───────────────────────────────────────────────────
   const [hideBalance, setHideBalance] = useState(false);
 
   useEffect(() => {
@@ -175,6 +235,19 @@ export default function BudgetTracker() {
         </div>
       )}
 
+      {/* User header bar */}
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+          👤 {displayName}
+        </span>
+        <button
+          onClick={() => signOut()}
+          className="text-[10px] font-black text-zinc-400 hover:text-zinc-700 uppercase tracking-widest transition-colors"
+        >
+          Sign Out
+        </button>
+      </div>
+
       <MonthHeader
         viewingMonth={viewingMonth}
         activeMonth={activeMonth}
@@ -188,8 +261,8 @@ export default function BudgetTracker() {
 
       <BalanceCard
         availableBalance={totals.availableBalance}
-        kbcAvailable={totals.kbcAvailable}
-        tebAvailable={totals.tebAvailable}
+        accountBalances={totals.accountBalances}
+        accounts={accounts}
         totalIncome={totals.totalIncome}
         totalSpent={totals.totalSpent}
         savings={savings}
@@ -343,13 +416,14 @@ export default function BudgetTracker() {
         categoryTotals={categoryTotals}
         budgetLimits={budgetLimits}
         onInstantLogPreset={handleInstantLogPreset}
+        accounts={accounts}
       />
 
       {/* New month confirmation bottom sheet */}
       <ConfirmSheet
         open={confirmOpen}
         title="Start New Month?"
-        description={`KBC (€${totals.kbcAvailable.toFixed(2)}) and TEB (€${totals.tebAvailable.toFixed(2)}) balances will carry forward automatically.`}
+        description={`Your account balances will carry forward automatically.`}
         confirmLabel="Start New Month →"
         onConfirm={async () => { setConfirmOpen(false); await startNextMonth(); }}
         onCancel={() => setConfirmOpen(false)}

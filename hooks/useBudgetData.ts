@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { db } from "@/lib/firebase";
 import { doc, setDoc, onSnapshot, getDoc } from "firebase/firestore";
-import { getFixedDefinitions, newId, type Account, type QuickPreset } from "@/lib/constants";
+import { getFixedDefinitions, newId, type Account, type QuickPreset, type FixedExpenses } from "@/lib/constants";
 
 export interface Transaction {
   id: string;
@@ -20,10 +20,18 @@ export interface MonthData {
   rollover: number;
 }
 
-const USER_ID = "kerem-efe";
+interface UseBudgetDataOptions {
+  uid: string;
+  /** Firestore path segment: data lives at users/{dataPath}/... */
+  dataPath: string;
+  /** Ordered list of account names this user has configured */
+  accounts: string[];
+  /** Per-user fixed expense definitions (housing + subscriptions). */
+  fixedExpenses?: FixedExpenses;
+}
 
-function docRef(path: string) {
-  return doc(db, "users", USER_ID, ...path.split("/"));
+function docRef(dataPath: string, path: string) {
+  return doc(db, "users", dataPath, ...path.split("/"));
 }
 
 function offsetMonth(monthId: string, delta: number): string {
@@ -32,10 +40,10 @@ function offsetMonth(monthId: string, delta: number): string {
   return d.toISOString().slice(0, 7);
 }
 
-export function useBudgetData() {
+export function useBudgetData({ uid, dataPath, accounts, fixedExpenses }: UseBudgetDataOptions) {
   // ── Month state ────────────────────────────────────────────────────────────
-  const [activeMonth, setActiveMonth] = useState<string>("");   // Firestore setting
-  const [viewingMonth, setViewingMonth] = useState<string>(""); // what we're showing
+  const [activeMonth, setActiveMonth] = useState<string>("");
+  const [viewingMonth, setViewingMonth] = useState<string>("");
 
   // ── Month data ─────────────────────────────────────────────────────────────
   const [incomeItems, setIncomeItems] = useState<Transaction[]>([]);
@@ -52,16 +60,18 @@ export function useBudgetData() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Track unsubscribes for cleanup
   const unsubSettings = useRef<(() => void) | null>(null);
 
   const isViewingHistory = activeMonth !== "" && viewingMonth !== "" && viewingMonth !== activeMonth;
 
   // ── Active month init ──────────────────────────────────────────────────────
   useEffect(() => {
+    if (!dataPath) return;
+    setLoading(true);
+
     const fetchActiveMonth = async () => {
       try {
-        const ref = docRef("settings/activeMonth");
+        const ref = docRef(dataPath, "settings/activeMonth");
         const snap = await getDoc(ref);
         if (snap.exists()) {
           const m = snap.data().monthId;
@@ -79,36 +89,34 @@ export function useBudgetData() {
       }
     };
     fetchActiveMonth();
-  }, []);
+  }, [dataPath]);
 
-  // ── Settings listeners (budget limits + presets) ───────────────────────────
+  // ── Settings listeners ─────────────────────────────────────────────────────
   useEffect(() => {
-    if (!activeMonth) return;
+    if (!activeMonth || !dataPath) return;
 
-    // Listen to budgetLimits
     const unsubLimits = onSnapshot(
-      docRef("settings/budgetLimits"),
+      docRef(dataPath, "settings/budgetLimits"),
       (snap) => { if (snap.exists()) setBudgetLimitsState(snap.data() as Record<string, number>); },
       (e) => console.error("Budget limits sync error", e)
     );
 
-    // Listen to quickPresets
     const unsubPresets = onSnapshot(
-      docRef("settings/quickPresets"),
+      docRef(dataPath, "settings/quickPresets"),
       (snap) => { if (snap.exists()) setPresets((snap.data().items as QuickPreset[]) || []); },
       (e) => console.error("Presets sync error", e)
     );
 
     unsubSettings.current = () => { unsubLimits(); unsubPresets(); };
     return () => { unsubLimits(); unsubPresets(); };
-  }, [activeMonth]);
+  }, [activeMonth, dataPath]);
 
   // ── Real-time month data sync ──────────────────────────────────────────────
   useEffect(() => {
-    if (!viewingMonth) return;
+    if (!viewingMonth || !dataPath) return;
     setLoading(true);
     const unsub = onSnapshot(
-      docRef(`months/${viewingMonth}`),
+      docRef(dataPath, `months/${viewingMonth}`),
       (snap) => {
         if (snap.exists()) {
           const data = snap.data() as MonthData;
@@ -133,29 +141,29 @@ export function useBudgetData() {
       }
     );
     return () => unsub();
-  }, [viewingMonth]);
+  }, [viewingMonth, dataPath]);
 
-  // ── Sync helper (blocked in history mode) ─────────────────────────────────
+  // ── Sync helper ───────────────────────────────────────────────────────────
   const sync = useCallback(
     (updates: Partial<MonthData>) => {
-      if (isViewingHistory) return Promise.resolve();
-      return setDoc(docRef(`months/${viewingMonth}`), updates, { merge: true }).catch(
+      if (isViewingHistory || !dataPath) return Promise.resolve();
+      return setDoc(docRef(dataPath, `months/${viewingMonth}`), updates, { merge: true }).catch(
         (e) => { setError("Save failed. Check your connection."); console.error(e); }
       );
     },
-    [viewingMonth, isViewingHistory]
+    [viewingMonth, isViewingHistory, dataPath]
   );
 
   // ── Derived calculations ───────────────────────────────────────────────────
   const fixedDefinitions = useMemo(
-    () => getFixedDefinitions(viewingMonth),
-    [viewingMonth]
+    () => getFixedDefinitions(viewingMonth, fixedExpenses),
+    [viewingMonth, fixedExpenses]
   );
 
   const totals = useMemo(() => {
     const rolloverTotal =
       incomeItems
-        .filter((i) => i.desc === "KBC Rollover" || i.desc === "TEB Rollover")
+        .filter((i) => accounts.some(acc => i.desc === `${acc} Rollover`))
         .reduce((a, b) => a + b.amount, 0) + Number(rollover);
 
     const totalIncome = incomeItems.reduce((a, b) => a + b.amount, 0) + Number(rollover);
@@ -169,17 +177,42 @@ export function useBudgetData() {
     const totalSpent = paidFixedTotal + variableTotal;
     const availableBalance = totalIncome - totalSpent - savings;
 
-    const tebIncome = incomeItems
-      .filter((i) => i.account === "TEB" || i.desc?.includes("TEB"))
-      .reduce((a, b) => a + b.amount, 0);
-    const tebSpent = variableExpenses
-      .filter((e) => e.account === "TEB" || e.desc?.includes("TEB"))
-      .reduce((a, b) => a + b.amount, 0);
-    const tebAvailable = tebIncome - tebSpent;
-    const kbcAvailable = availableBalance - tebAvailable;
+    // Dynamic per-account balances (variable expenses only first)
+    const accountBalances: Record<string, number> = {};
+    for (const acc of accounts) {
+      const accIncome = incomeItems
+        .filter((i) => i.account === acc || i.desc?.includes(acc))
+        .reduce((a, b) => a + b.amount, 0);
+      const accSpent = variableExpenses
+        .filter((e) => e.account === acc || e.desc?.includes(acc))
+        .reduce((a, b) => a + b.amount, 0);
+      accountBalances[acc] = accIncome - accSpent;
+    }
 
-    return { rolloverTotal, totalIncome, paidFixedTotal, variableTotal, totalSpent, availableBalance, tebAvailable, kbcAvailable };
-  }, [incomeItems, variableExpenses, fixedPaid, fixedDefinitions, rollover, savings]);
+    // ── BUG FIX: Deduct paid fixed expenses from the primary account ──────
+    // Fixed expenses (rent, bills, subscriptions) are not tagged to a specific
+    // account, so we attribute them all to the first/primary account.
+    // This makes sum(accountBalances) == availableBalance.
+    if (accounts.length > 0) {
+      accountBalances[accounts[0]] = (accountBalances[accounts[0]] ?? 0) - paidFixedTotal - savings;
+    }
+
+    // Legacy compat: expose kbcAvailable / tebAvailable for components that still use them
+    const kbcAvailable = accountBalances[accounts[0]] ?? availableBalance;
+    const tebAvailable = accounts.length > 1 ? (accountBalances[accounts[1]] ?? 0) : 0;
+
+    return {
+      rolloverTotal,
+      totalIncome,
+      paidFixedTotal,
+      variableTotal,
+      totalSpent,
+      availableBalance,
+      accountBalances,
+      kbcAvailable,
+      tebAvailable,
+    };
+  }, [incomeItems, variableExpenses, fixedPaid, fixedDefinitions, rollover, savings, accounts]);
 
   const categoryTotals = useMemo(() => {
     const map: Record<string, number> = {};
@@ -195,7 +228,6 @@ export function useBudgetData() {
   }, []);
 
   const goToNextMonth = useCallback(() => {
-    // Don't allow navigating past the active month
     setViewingMonth((m) => {
       const next = offsetMonth(m, 1);
       return next <= activeMonth ? next : m;
@@ -206,25 +238,32 @@ export function useBudgetData() {
     setViewingMonth(activeMonth);
   }, [activeMonth]);
 
-  // ── Start next month (no confirm — handled by ConfirmSheet) ───────────────
+  // ── Start next month ───────────────────────────────────────────────────────
   const startNextMonth = useCallback(async () => {
     const nextId = offsetMonth(activeMonth, 1);
-    const { kbcAvailable, tebAvailable } = totals;
+    const { accountBalances } = totals;
+
+    // Create rollover income items for each account
+    const rolloverItems: Transaction[] = accounts.map((acc) => ({
+      id: newId(),
+      amount: (accountBalances[acc] ?? 0) > 0 ? (accountBalances[acc] ?? 0) : 0,
+      category: "Other",
+      desc: `${acc} Rollover`,
+      account: acc,
+    }));
+
     const nextMonthData: MonthData = {
       fixedPaid: ["amazon", "icloud"],
-      incomeItems: [
-        { id: newId(), amount: kbcAvailable > 0 ? kbcAvailable : 0, category: "Other", desc: "KBC Rollover", account: "KBC" },
-        { id: newId(), amount: tebAvailable > 0 ? tebAvailable : 0, category: "Other", desc: "TEB Rollover", account: "TEB" },
-      ],
+      incomeItems: rolloverItems,
       variableExpenses: [],
       savings: 0,
       rollover: 0,
     };
-    await setDoc(docRef(`months/${nextId}`), nextMonthData);
-    await setDoc(docRef("settings/activeMonth"), { monthId: nextId });
+    await setDoc(docRef(dataPath, `months/${nextId}`), nextMonthData);
+    await setDoc(docRef(dataPath, "settings/activeMonth"), { monthId: nextId });
     setActiveMonth(nextId);
     setViewingMonth(nextId);
-  }, [activeMonth, totals]);
+  }, [activeMonth, totals, accounts, dataPath]);
 
   // ── CRUD actions ───────────────────────────────────────────────────────────
   const addIncome = useCallback(
@@ -329,11 +368,11 @@ export function useBudgetData() {
     (category: string, limit: number) => {
       const updated = { ...budgetLimits, [category]: limit };
       setBudgetLimitsState(updated);
-      return setDoc(docRef("settings/budgetLimits"), updated, { merge: true }).catch(
+      return setDoc(docRef(dataPath, "settings/budgetLimits"), updated, { merge: true }).catch(
         (e) => console.error("Failed to save budget limit", e)
       );
     },
-    [budgetLimits]
+    [budgetLimits, dataPath]
   );
 
   const removeBudgetLimit = useCallback(
@@ -341,11 +380,11 @@ export function useBudgetData() {
       const updated = { ...budgetLimits };
       delete updated[category];
       setBudgetLimitsState(updated);
-      return setDoc(docRef("settings/budgetLimits"), updated).catch(
+      return setDoc(docRef(dataPath, "settings/budgetLimits"), updated).catch(
         (e) => console.error("Failed to remove budget limit", e)
       );
     },
-    [budgetLimits]
+    [budgetLimits, dataPath]
   );
 
   // ── Quick presets ──────────────────────────────────────────────────────────
@@ -353,22 +392,22 @@ export function useBudgetData() {
     (preset: Omit<QuickPreset, "id">) => {
       const updated = [...presets, { ...preset, id: newId() }];
       setPresets(updated);
-      return setDoc(docRef("settings/quickPresets"), { items: updated }).catch(
+      return setDoc(docRef(dataPath, "settings/quickPresets"), { items: updated }).catch(
         (e) => console.error("Failed to save preset", e)
       );
     },
-    [presets]
+    [presets, dataPath]
   );
 
   const deletePreset = useCallback(
     (id: string) => {
       const updated = presets.filter((p) => p.id !== id);
       setPresets(updated);
-      return setDoc(docRef("settings/quickPresets"), { items: updated }).catch(
+      return setDoc(docRef(dataPath, "settings/quickPresets"), { items: updated }).catch(
         (e) => console.error("Failed to delete preset", e)
       );
     },
-    [presets]
+    [presets, dataPath]
   );
 
   return {

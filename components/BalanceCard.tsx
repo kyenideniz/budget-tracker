@@ -3,10 +3,19 @@ import { useState, useEffect, useRef } from "react";
 import { formatCurrency } from "@/lib/utils";
 import { type FixedItem } from "@/lib/constants";
 
+const ACCOUNT_PILL_COLORS = [
+  "bg-blue-500/10 border-blue-500/20 text-blue-400 bg-blue-500",
+  "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 bg-emerald-500",
+  "bg-violet-500/10 border-violet-500/20 text-violet-400 bg-violet-500",
+  "bg-orange-500/10 border-orange-500/20 text-orange-400 bg-orange-500",
+];
+
 interface BalanceCardProps {
   availableBalance: number;
-  kbcAvailable: number;
-  tebAvailable: number;
+  /** Per-account balances keyed by account name */
+  accountBalances: Record<string, number>;
+  /** Ordered list of the user's account names */
+  accounts: string[];
   totalIncome: number;
   totalSpent: number;
   savings: number;
@@ -20,8 +29,8 @@ interface BalanceCardProps {
 
 export default function BalanceCard({
   availableBalance,
-  kbcAvailable,
-  tebAvailable,
+  accountBalances,
+  accounts,
   totalIncome,
   totalSpent,
   savings,
@@ -163,20 +172,20 @@ export default function BalanceCard({
         </h1>
       )}
 
-      {/* Account Split Bubbles */}
-      <div className="flex justify-center gap-3 mb-6">
-        <div className="bg-blue-500/10 border border-blue-500/20 px-3 py-1.5 rounded-full flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-          <span className="text-[10px] font-black tracking-widest text-blue-400 uppercase">
-            KBC {maskValue(kbcAvailable, formatExactCurrency)}
-          </span>
-        </div>
-        <div className="bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          <span className="text-[10px] font-black tracking-widest text-emerald-400 uppercase">
-            TEB {maskValue(tebAvailable, formatExactCurrency)}
-          </span>
-        </div>
+      {/* Account Split Bubbles — dynamic */}
+      <div className="flex justify-center gap-2 mb-6 flex-wrap">
+        {accounts.map((acc, i) => {
+          const colors = ACCOUNT_PILL_COLORS[i % ACCOUNT_PILL_COLORS.length].split(" ");
+          const [bgCls, borderCls, textCls, dotCls] = colors;
+          return (
+            <div key={acc} className={`${bgCls} border ${borderCls} px-3 py-1.5 rounded-full flex items-center gap-2`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${dotCls}`} />
+              <span className={`text-[10px] font-black tracking-widest ${textCls} uppercase`}>
+                {acc} {maskValue(accountBalances[acc] ?? 0, formatExactCurrency)}
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       {/* Summary Footer */}

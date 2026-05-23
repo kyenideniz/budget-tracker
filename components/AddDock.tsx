@@ -20,6 +20,8 @@ interface AddDockProps {
   categoryTotals?: Record<string, number>;
   budgetLimits?: Record<string, number>;
   onInstantLogPreset?: (preset: QuickPreset) => void;
+  /** User's configured bank account names */
+  accounts?: string[];
 }
 
 const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
@@ -35,11 +37,12 @@ const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
     categoryTotals = {},
     budgetLimits = {},
     onInstantLogPreset,
+    accounts = ["KBC", "TEB"],
   },
   ref
 ) {
   const [inputType, setInputType] = useState<"Expense" | "Income">("Expense");
-  const [account, setAccount] = useState<Account>("KBC");
+  const [account, setAccount] = useState<string>(accounts[0] ?? "KBC");
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("Groceries");
   const [desc, setDesc] = useState("");
@@ -378,16 +381,15 @@ const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
               </div>
 
               <div className="bg-zinc-800 p-1 rounded-full flex gap-1">
-                {(["KBC", "TEB"] as const).map((a) => (
+                {accounts.map((a) => (
                   <button
                     key={a}
                     onClick={() => setAccount(a)}
-                    className={`px-4 py-2 rounded-full text-[10px] font-black transition-all ${account === a
-                      ? a === "KBC"
-                        ? "bg-blue-600 text-white shadow-lg"
-                        : "bg-emerald-500 text-white shadow-lg"
-                      : "text-zinc-500 hover:text-zinc-300"
-                      }`}
+                    className={`px-4 py-2 rounded-full text-[10px] font-black transition-all ${
+                      account === a
+                        ? "bg-white text-zinc-900 shadow-lg"
+                        : "text-zinc-500 hover:text-zinc-300"
+                    }`}
                   >
                     {a}
                   </button>
