@@ -176,6 +176,13 @@ const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
     let lastScrollY = window.scrollY;
     const handleScroll = () => {
       if (showDropdownRef.current) return; // Skip collapsing if category picker is active
+      
+      // Prevent collapse when keyboard opens (auto-scroll) or while user is typing in any input
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")) {
+        return;
+      }
+
       const currentScrollY = window.scrollY;
       // Scroll down -> collapse
       if (currentScrollY > lastScrollY && currentScrollY > 50) {

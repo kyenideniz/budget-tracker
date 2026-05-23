@@ -54,7 +54,7 @@ function PresetPill({
   };
 
   return (
-    <div className="relative flex-shrink-0 group">
+    <div className="relative flex-shrink-0 group select-none">
       <button
         onMouseDown={startPress}
         onMouseUp={cancelPress}
@@ -63,7 +63,8 @@ function PresetPill({
         onTouchEnd={cancelPress}
         onTouchCancel={cancelPress}
         onClick={handleClick}
-        className={`flex-shrink-0 px-4 py-2 pr-7 rounded-full text-[10px] font-black transition-all active:scale-95 border ${
+        style={{ WebkitTouchCallout: "none" }}
+        className={`flex-shrink-0 px-4 py-2 pr-7 rounded-full text-[10px] font-black transition-all active:scale-95 border select-none ${
           preset.type === "Income"
             ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
             : preset.account === "KBC"
@@ -112,7 +113,7 @@ export default function QuickPresets({
       {!disabled && !isCollapsed && (
         <button
           onClick={onSaveCurrent}
-          className="flex-shrink-0 px-4 py-2 rounded-full text-[10px] font-black border border-dashed border-zinc-600 text-zinc-500 hover:border-zinc-400 hover:text-zinc-400 transition-colors"
+          className="flex-shrink-0 px-4 py-2 rounded-full text-[10px] font-black border border-dashed border-zinc-600 text-zinc-500 hover:border-zinc-400 hover:text-zinc-400 transition-colors select-none"
         >
           ＋ Save
         </button>
