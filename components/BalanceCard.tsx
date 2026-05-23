@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { formatCurrency, formatCurrencyCompact } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import { type FixedItem } from "@/lib/constants";
 
 interface BalanceCardProps {
@@ -35,12 +35,22 @@ export default function BalanceCard({
   const [activePage, setActivePage] = useState(0); // 0 = Balance details (default), 1 = Allowance & Streaks
   const [safeToSpend, setSafeToSpend] = useState(0);
   const [streak, setStreak] = useState(0);
-  
+
   const touchStartX = useRef<number | null>(null);
 
   const maskValue = (value: number, formatFn: (val: number) => string) => {
     if (loading) return "—";
     return hideBalance ? "***,**" : formatFn(value);
+  };
+
+  // Add this new function to force 2 decimals and European comma formatting
+  const formatExactCurrency = (val: number) => {
+    return new Intl.NumberFormat("nl-BE", {
+      style: "currency",
+      currency: "EUR",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(val);
   };
 
   // Compute Safe-to-Spend and Saving Streaks
@@ -66,7 +76,7 @@ export default function BalanceCard({
     // 4. Calculate streak (days with spent < dailyAllowance in the last week)
     let activeStreak = 0;
     const dailyLimits = dailyAllowance > 0 ? dailyAllowance : 50; // fallback limit
-    
+
     // Group expenses by day for the last 7 days
     const expensesByDay: Record<string, number> = {};
     variableExpenses.forEach((exp) => {
@@ -158,13 +168,13 @@ export default function BalanceCard({
         <div className="bg-blue-500/10 border border-blue-500/20 px-3 py-1.5 rounded-full flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
           <span className="text-[10px] font-black tracking-widest text-blue-400 uppercase">
-            KBC {maskValue(kbcAvailable, formatCurrencyCompact)}
+            KBC {maskValue(kbcAvailable, formatExactCurrency)}
           </span>
         </div>
         <div className="bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
           <span className="text-[10px] font-black tracking-widest text-emerald-400 uppercase">
-            TEB {maskValue(tebAvailable, formatCurrencyCompact)}
+            TEB {maskValue(tebAvailable, formatExactCurrency)}
           </span>
         </div>
       </div>
@@ -257,16 +267,14 @@ export default function BalanceCard({
       <div className="flex justify-center gap-2 mt-4 select-none">
         <button
           onClick={() => setActivePage(0)}
-          className={`w-1.5 h-1.5 rounded-full transition-all cursor-pointer ${
-            isBalanceActive ? "bg-white/80 scale-110" : "bg-zinc-800 hover:bg-zinc-700"
-          }`}
+          className={`w-1.5 h-1.5 rounded-full transition-all cursor-pointer ${isBalanceActive ? "bg-white/80 scale-110" : "bg-zinc-800 hover:bg-zinc-700"
+            }`}
           title="Balance view"
         />
         <button
           onClick={() => setActivePage(1)}
-          className={`w-1.5 h-1.5 rounded-full transition-all cursor-pointer ${
-            isAllowanceActive ? "bg-white/80 scale-110" : "bg-zinc-800 hover:bg-zinc-700"
-          }`}
+          className={`w-1.5 h-1.5 rounded-full transition-all cursor-pointer ${isAllowanceActive ? "bg-white/80 scale-110" : "bg-zinc-800 hover:bg-zinc-700"
+            }`}
           title="Streaks & Allowance"
         />
       </div>
