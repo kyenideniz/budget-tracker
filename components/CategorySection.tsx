@@ -93,7 +93,7 @@ function TransactionRow({
   };
 
   const confirmEdit = () => {
-    const amount = parseFloat(draftAmount);
+    const amount = parseFloat(draftAmount.replace(",", "."));
     if (isNaN(amount) || amount <= 0) return;
     onEdit(tx.id, { amount, desc: draftDesc });
     setEditing(false);
@@ -104,9 +104,14 @@ function TransactionRow({
       <div className="bg-white rounded-2xl p-3 border border-zinc-200 space-y-2">
         <div className="flex gap-2">
           <input
-            type="number" inputMode="decimal"
+            type="text" inputMode="decimal"
             value={draftAmount}
-            onChange={(e) => setDraftAmount(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (/^[0-9]*[.,]?[0-9]*$/.test(val)) {
+                setDraftAmount(val);
+              }
+            }}
             autoFocus
             className="w-24 bg-zinc-100 rounded-xl px-3 py-2 text-base font-black text-zinc-800 outline-none"
           />
@@ -201,7 +206,7 @@ export default function CategorySection({
   };
 
   const confirmLimit = () => {
-    const val = parseFloat(limitDraft);
+    const val = parseFloat(limitDraft.replace(",", "."));
     if (!isNaN(val) && val > 0) onSetBudgetLimit(val);
     else if (limitDraft === "") onRemoveBudgetLimit();
     setEditingLimit(false);
@@ -264,9 +269,14 @@ export default function CategorySection({
           </p>
           <div className="flex gap-2">
             <input
-              type="number" inputMode="decimal"
+              type="text" inputMode="decimal"
               value={limitDraft}
-              onChange={(e) => setLimitDraft(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (/^[0-9]*[.,]?[0-9]*$/.test(val)) {
+                  setLimitDraft(val);
+                }
+              }}
               autoFocus
               placeholder="e.g. 200"
               className="flex-1 bg-white border border-zinc-200 rounded-xl px-3 py-2 text-base font-black text-zinc-800 outline-none"

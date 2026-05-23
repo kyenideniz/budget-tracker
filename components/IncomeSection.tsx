@@ -62,7 +62,7 @@ function IncomeRow({ tx, onDelete, onEdit }: IncomeRowProps) {
   };
 
   const confirmEdit = () => {
-    const amount = parseFloat(draftAmount);
+    const amount = parseFloat(draftAmount.replace(",", "."));
     if (isNaN(amount) || amount <= 0) return;
     onEdit(tx.id, { amount, desc: draftDesc });
     setEditing(false);
@@ -73,9 +73,14 @@ function IncomeRow({ tx, onDelete, onEdit }: IncomeRowProps) {
       <div className="bg-white rounded-2xl p-3 border border-zinc-200 space-y-2">
         <div className="flex gap-2">
           <input
-            type="number" inputMode="decimal"
+            type="text" inputMode="decimal"
             value={draftAmount}
-            onChange={(e) => setDraftAmount(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (/^[0-9]*[.,]?[0-9]*$/.test(val)) {
+                setDraftAmount(val);
+              }
+            }}
             autoFocus
             className="w-24 bg-zinc-100 rounded-xl px-3 py-2 text-base font-black text-zinc-800 outline-none"
           />

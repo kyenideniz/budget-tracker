@@ -50,7 +50,7 @@ const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
   const categoryPickerRef = useRef<HTMLDivElement | null>(null);
 
   const categories: readonly string[] = inputType === "Expense" ? VARIABLE_CATEGORIES : INCOME_CATEGORIES;
-  const amountVal = parseFloat(amount);
+  const amountVal = parseFloat(amount.replace(",", "."));
   const hasAmount = !isNaN(amountVal) && amountVal > 0;
 
   // Live balance preview
@@ -176,7 +176,7 @@ const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
     let lastScrollY = window.scrollY;
     const handleScroll = () => {
       if (showDropdownRef.current) return; // Skip collapsing if category picker is active
-      
+
       // Prevent collapse when keyboard opens (auto-scroll) or while user is typing in any input
       const activeEl = document.activeElement;
       if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")) {
@@ -306,11 +306,10 @@ const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
       onTouchStart={handleDockTouchStart}
       onTouchMove={handleDockTouchMove}
       onTouchEnd={handleDockTouchEnd}
-      className={`fixed bottom-10 left-6 right-6 bg-zinc-900/95 backdrop-blur-xl rounded-[2rem] shadow-2xl z-50 transition-all duration-500 ease-in-out border ${
-        exceedsBudget
+      className={`fixed bottom-10 left-6 right-6 bg-zinc-900/95 backdrop-blur-xl rounded-[2rem] shadow-2xl z-50 transition-all duration-500 ease-in-out border ${exceedsBudget
           ? "border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.4)] animate-pulse"
           : "border-zinc-800/80"
-      } ${isCollapsed ? "p-3" : "p-4"
+        } ${isCollapsed ? "p-3" : "p-4"
         } ${disabled ? "opacity-50 pointer-events-none" : ""}`}
     >
       {/* Top Row: Presets (flex-1) + Expand Button (visible only when collapsed) */}
@@ -369,8 +368,8 @@ const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
                     key={t}
                     onClick={() => handleTypeSwitch(t)}
                     className={`px-5 py-2 rounded-2xl text-[10px] font-black transition-all ${inputType === t
-                        ? "bg-white text-zinc-900 shadow-lg"
-                        : "text-zinc-500 hover:text-zinc-300"
+                      ? "bg-white text-zinc-900 shadow-lg"
+                      : "text-zinc-500 hover:text-zinc-300"
                       }`}
                   >
                     {t.toUpperCase()}
@@ -384,10 +383,10 @@ const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
                     key={a}
                     onClick={() => setAccount(a)}
                     className={`px-4 py-2 rounded-full text-[10px] font-black transition-all ${account === a
-                        ? a === "KBC"
-                          ? "bg-blue-600 text-white shadow-lg"
-                          : "bg-emerald-500 text-white shadow-lg"
-                        : "text-zinc-500 hover:text-zinc-300"
+                      ? a === "KBC"
+                        ? "bg-blue-600 text-white shadow-lg"
+                        : "bg-emerald-500 text-white shadow-lg"
+                      : "text-zinc-500 hover:text-zinc-300"
                       }`}
                   >
                     {a}
@@ -399,12 +398,27 @@ const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
             {/* Inputs */}
             <div className="flex gap-2">
               <input
-                type="number"
+                type="text"
                 inputMode="decimal"
                 placeholder="€"
                 className="w-1/3 bg-zinc-800 rounded-2xl p-4 text-white font-black outline-none tabular-nums text-base"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  let val = e.target.value;
+
+                  // 1. Strip out any spaces or hidden characters mobile keyboards inject
+                  // This strictly leaves only numbers, commas, and periods.
+                  val = val.replace(/[^0-9.,]/g, '');
+
+                  // 2. Extract only the valid pattern (numbers + max one comma/dot + numbers)
+                  // By using .match() without the strict '$' at the end, it gracefully 
+                  // accepts the valid part of the typing instead of rejecting the whole thing.
+                  const match = val.match(/^[0-9]*[.,]?[0-9]*/);
+
+                  if (match) {
+                    setAmount(match[0]);
+                  }
+                }}
                 onKeyDown={handleKeyDown}
               />
 
@@ -439,8 +453,8 @@ const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
                               if (navigator.vibrate) navigator.vibrate(20);
                             }}
                             className={`w-full text-left px-4 py-3 rounded-2xl text-[11px] font-black tracking-wide transition-all flex items-center justify-between active:scale-98 ${category === c
-                                ? "bg-blue-600 text-white shadow-lg"
-                                : "text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                              ? "bg-blue-600 text-white shadow-lg"
+                              : "text-zinc-300 hover:bg-zinc-800 hover:text-white"
                               }`}
                           >
                             <span>{c.toUpperCase()}</span>
