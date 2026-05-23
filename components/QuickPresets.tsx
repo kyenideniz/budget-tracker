@@ -27,7 +27,8 @@ function PresetPill({
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLongPress = useRef(false);
 
-  const startPress = () => {
+  const startPress = (e: React.MouseEvent | React.TouchEvent) => {
+    e.stopPropagation();
     isLongPress.current = false;
     pressTimer.current = setTimeout(() => {
       isLongPress.current = true;
@@ -36,7 +37,8 @@ function PresetPill({
     }, LONG_PRESS_MS);
   };
 
-  const cancelPress = () => {
+  const cancelPress = (e: React.MouseEvent | React.TouchEvent) => {
+    e.stopPropagation();
     if (pressTimer.current) {
       clearTimeout(pressTimer.current);
       pressTimer.current = null;
@@ -44,6 +46,7 @@ function PresetPill({
   };
 
   const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (isLongPress.current) {
       e.preventDefault();
       e.stopPropagation();
@@ -62,6 +65,7 @@ function PresetPill({
         onTouchStart={startPress}
         onTouchEnd={cancelPress}
         onTouchCancel={cancelPress}
+        onTouchMove={(e) => e.stopPropagation()}
         onClick={handleClick}
         style={{ WebkitTouchCallout: "none" }}
         className={`flex-shrink-0 px-4 py-2 pr-7 rounded-full text-[10px] font-black transition-all active:scale-95 border select-none ${

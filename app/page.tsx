@@ -116,6 +116,19 @@ export default function BudgetTracker() {
     }
   }, [deletedPreset, addPreset]);
 
+  // ── Added preset state & callbacks ─────────────────────────────────────────
+  const [addedTx, setAddedTx] = useState<Transaction | null>(null);
+  const [addedType, setAddedType] = useState<"income" | "expense">("expense");
+
+  useEffect(() => {
+    if (addedTx) {
+      const timer = setTimeout(() => {
+        setAddedTx(null);
+      }, 7000);
+      return () => clearTimeout(timer);
+    }
+  }, [addedTx]);
+
   const handleInstantLogPreset = useCallback(
     (preset: QuickPreset) => {
       if (navigator.vibrate) navigator.vibrate(40);
@@ -125,11 +138,16 @@ export default function BudgetTracker() {
         desc: preset.desc || preset.label,
         account: preset.account,
       };
+
+      let loggedTx: Transaction;
       if (preset.type === "Income") {
-        addIncome(newTx);
+        loggedTx = addIncome(newTx);
+        setAddedType("income");
       } else {
-        addExpense(newTx);
+        loggedTx = addExpense(newTx);
+        setAddedType("expense");
       }
+      setAddedTx(loggedTx);
     },
     [addIncome, addExpense]
   );
@@ -240,6 +258,46 @@ export default function BudgetTracker() {
         onUndo={handleUndo}
         onDismiss={() => setDeletedTx(null)}
       />
+
+      {/* Added preset toast with undo */}
+      {addedTx && (
+        <div className="fixed top-6 left-6 right-6 z-[100] animate-in fade-in slide-in-from-top-3 duration-500">
+          <div className="relative bg-zinc-900/90 backdrop-blur-xl border border-zinc-700/50 rounded-full shadow-2xl p-2 pl-5 flex items-center justify-between overflow-hidden">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <p className="text-xs font-bold text-zinc-200 tracking-wide select-none">
+                <span className="text-zinc-500 font-medium mr-1.5">Added</span>
+                {addedTx.desc || addedTx.category}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 pr-1.5">
+              <button
+                onClick={() => {
+                  if (addedType === "income") {
+                    deleteIncome(addedTx.id);
+                  } else {
+                    deleteExpense(addedTx.id);
+                  }
+                  setAddedTx(null);
+                  if (navigator.vibrate) navigator.vibrate(30);
+                }}
+                className="bg-blue-600 hover:bg-blue-500 text-white font-black text-[10px] tracking-wider px-5 py-2.5 rounded-full shadow-lg hover:shadow-blue-500/20 active:scale-95 transition-all cursor-pointer"
+              >
+                UNDO
+              </button>
+              <button
+                onClick={() => setAddedTx(null)}
+                className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700/80 flex items-center justify-center text-zinc-400 hover:text-zinc-200 text-xs font-black transition-all active:scale-95 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Undo Preset Toast */}
       {deletedPreset && (

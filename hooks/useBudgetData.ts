@@ -229,18 +229,22 @@ export function useBudgetData() {
   // ── CRUD actions ───────────────────────────────────────────────────────────
   const addIncome = useCallback(
     (item: Omit<Transaction, "id">) => {
-      const updated = [...incomeItems, { ...item, id: newId() }];
+      const generatedTx = { ...item, id: newId() };
+      const updated = [...incomeItems, generatedTx];
       setIncomeItems(updated);
-      return sync({ incomeItems: updated });
+      sync({ incomeItems: updated });
+      return generatedTx;
     },
     [incomeItems, sync]
   );
 
   const addExpense = useCallback(
     (item: Omit<Transaction, "id">) => {
-      const updated = [...variableExpenses, { ...item, id: newId() }];
+      const generatedTx = { ...item, id: newId() };
+      const updated = [...variableExpenses, generatedTx];
       setVariableExpenses(updated);
-      return sync({ variableExpenses: updated });
+      sync({ variableExpenses: updated });
+      return generatedTx;
     },
     [variableExpenses, sync]
   );
