@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { getFixedDefinitions } from '@/lib/constants';
 
 export async function GET() {
   try {
@@ -24,26 +25,17 @@ export async function GET() {
     const rollover = data.rollover || 0;
     const savings = data.savings || 0;
 
-    // 3. DEFINITIONS
-    const fixedDefinitions = {
-      Housing: [
-        { id: 'rent', amt: 773 },
-        { id: 'bills', amt: 164 }
-      ],
-      Subscriptions: [
-        { id: 'phone', amt: 59.99 },
-        { id: 'icloud', amt: 2.99 },
-        { id: 'amazon', amt: 2.99 }
-      ]
-    };
+    // 3. DYNAMIC FIXED DEFINITIONS
+    const fixedDefinitions = getFixedDefinitions(currentMonth);
 
     // 4. CORE MATH
     const totalIncome = incomeItems.reduce((a: any, b: any) => a + b.amount, 0) + Number(rollover);
     const variableSpent = variableExpenses.reduce((a: any, b: any) => a + b.amount, 0);
 
     // Calculate only what has been marked as PAID
-    const fixedCostsPaid = Object.values(fixedDefinitions).flat()
-      .filter(item => fixedPaid.includes(item.id))
+    const fixedCostsPaid = Object.values(fixedDefinitions)
+      .flat()
+      .filter((item: any) => fixedPaid.includes(item.id))
       .reduce((a, b) => a + b.amt, 0);
 
     // SPENDABLE POOL LOGIC (Income minus Fixed Bills)
@@ -52,18 +44,22 @@ export async function GET() {
       ? Math.round((variableSpent / spendablePool) * 100)
       : 100;
 
-    // 5. EXPLICIT BANK ACCOUNT BALANCES
+    // 5. EXPLICIT BANK ACCOUNT BALANCES (Synchronized with client-side useBudgetData logic)
     // TEB Calculation
-    const tebIncome = incomeItems.filter((i: any) => i.account === 'TEB' || i.desc?.includes('TEB')).reduce((a: any, b: any) => a + b.amount, 0);
-    const tebSpent = variableExpenses.filter((e: any) => e.account === 'TEB').reduce((a: any, b: any) => a + b.amount, 0);
+    const tebIncome = incomeItems
+      .filter((i: any) => i.account === 'TEB' || i.desc?.includes('TEB'))
+      .reduce((a: any, b: any) => a + b.amount, 0);
+    const tebSpent = variableExpenses
+      .filter((e: any) => e.account === 'TEB' || e.desc?.includes('TEB'))
+      .reduce((a: any, b: any) => a + b.amount, 0);
     const tebAvailable = tebIncome - tebSpent;
 
-    // KBC Calculation (Income - Variable Spent - Fixed Bills - Savings)
-    const kbcIncome = incomeItems.filter((i: any) => i.account === 'KBC' || i.desc?.includes('KBC')).reduce((a: any, b: any) => a + b.amount, 0) + Number(rollover);
-    const kbcVariableSpent = variableExpenses.filter((e: any) => e.account === 'KBC').reduce((a: any, b: any) => a + b.amount, 0);
+    // Total Available (Income - Total Spent - Savings)
+    const totalSpent = fixedCostsPaid + variableSpent;
+    const availableBalance = totalIncome - totalSpent - savings;
 
-    // This explicitly reduces KBC balance by your fixed bills if they are PAID
-    const kbcAvailable = kbcIncome - kbcVariableSpent - fixedCostsPaid - savings;
+    // KBC is the remaining pool of the available balance
+    const kbcAvailable = availableBalance - tebAvailable;
 
     // 6. WIDGET RATIOS
     const totalAvailable = kbcAvailable + tebAvailable;

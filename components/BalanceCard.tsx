@@ -32,9 +32,10 @@ export default function BalanceCard({
   fixedPaid,
   variableExpenses,
 }: BalanceCardProps) {
-  const [activePage, setActivePage] = useState(0); // 0 = Balance details, 1 = Allowance & Streaks
+  const [activePage, setActivePage] = useState(0); // 0 = Balance details (default), 1 = Allowance & Streaks
   const [safeToSpend, setSafeToSpend] = useState(0);
   const [streak, setStreak] = useState(0);
+  
   const touchStartX = useRef<number | null>(null);
 
   const maskValue = (value: number, formatFn: (val: number) => string) => {
@@ -89,7 +90,7 @@ export default function BalanceCard({
     setStreak(activeStreak);
   }, [availableBalance, fixedDefinitions, fixedPaid, variableExpenses]);
 
-  // Touch Swipe Handlers for Infinite Carousel (based on touchend to prevent stuttering)
+  // Touch Swipe Handlers for Infinite 2-Page Carousel
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
   };
@@ -99,13 +100,12 @@ export default function BalanceCard({
     const touchEndX = e.changedTouches[0].clientX;
     const diffX = touchStartX.current - touchEndX;
 
-    // Minimum swipe threshold of 40px to register page change
     if (Math.abs(diffX) > 40) {
       if (diffX > 0) {
-        // Swiped left -> next page
+        // Swiped left -> toggle page (0 -> 1, or 1 -> 0)
         setActivePage((prev) => (prev === 0 ? 1 : 0));
       } else {
-        // Swiped right -> prev page
+        // Swiped right -> toggle page (1 -> 0, or 0 -> 1)
         setActivePage((prev) => (prev === 1 ? 0 : 1));
       }
       if (navigator.vibrate) navigator.vibrate(30);
@@ -113,149 +113,159 @@ export default function BalanceCard({
     touchStartX.current = null;
   };
 
-  return (
-    <div
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      className="bg-zinc-900 rounded-[3rem] p-10 shadow-2xl mb-8 text-white text-center relative overflow-hidden select-none border border-zinc-800/80"
-    >
-      <div className="overflow-hidden relative w-full min-h-[220px]">
-        <div
-          className="flex transition-transform duration-500 ease-out h-full"
-          style={{ transform: `translateX(-${activePage * 50}%)`, width: "200%" }}
+  const isBalanceActive = activePage === 0;
+  const isAllowanceActive = activePage === 1;
+
+  // Reusable sub-layouts to keep render code clean and perfectly organized
+  const balanceContent = (
+    <div className="w-1/2 flex flex-col justify-between h-full px-1 flex-shrink-0">
+      {/* Header Label + Toggle Eye Button */}
+      <div className="flex items-center justify-center gap-2 mb-2 select-none">
+        <span className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em]">
+          Available Balance
+        </span>
+        <button
+          onClick={onToggleHide}
+          disabled={loading}
+          className="text-zinc-500 hover:text-zinc-300 disabled:opacity-30 transition-colors p-1 rounded-lg focus:outline-none focus:ring-1 focus:ring-zinc-700/50 cursor-pointer"
+          title={hideBalance ? "Show Balance" : "Hide Balance"}
         >
-          {/* PAGE 0: Balance Card details */}
-          <div className="w-1/2 flex flex-col justify-between h-full px-1 flex-shrink-0">
-            {/* Header Label + Toggle Eye Button */}
-            <div className="flex items-center justify-center gap-2 mb-2 select-none">
-              <span className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em]">
-                Available Balance
-              </span>
-              <button
-                onClick={onToggleHide}
-                disabled={loading}
-                className="text-zinc-500 hover:text-zinc-300 disabled:opacity-30 transition-colors p-1 rounded-lg focus:outline-none focus:ring-1 focus:ring-zinc-700/50 cursor-pointer"
-                title={hideBalance ? "Show Balance" : "Hide Balance"}
-              >
-                {hideBalance ? (
-                  // Eye Closed Icon
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
-                  </svg>
-                ) : (
-                  // Eye Open Icon
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.43 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                )}
-              </button>
-            </div>
+          {hideBalance ? (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.43 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          )}
+        </button>
+      </div>
 
-            {loading ? (
-              <div className="h-16 flex items-center justify-center mt-2 mb-3">
-                <div className="w-48 h-10 bg-zinc-800 rounded-2xl animate-pulse" />
-              </div>
-            ) : (
-              <h1 className="text-6xl font-black mt-2 mb-3 tracking-tighter tabular-nums overflow-hidden text-ellipsis whitespace-nowrap px-2">
-                {hideBalance ? "***,**" : formatCurrency(availableBalance)}
-              </h1>
-            )}
+      {loading ? (
+        <div className="h-16 flex items-center justify-center mt-2 mb-3">
+          <div className="w-48 h-10 bg-zinc-800 rounded-2xl animate-pulse" />
+        </div>
+      ) : (
+        <h1 className="text-6xl font-black mt-2 mb-3 tracking-tighter tabular-nums overflow-hidden text-ellipsis whitespace-nowrap px-2">
+          {hideBalance ? "***,**" : formatCurrency(availableBalance)}
+        </h1>
+      )}
 
-            {/* Account Split Bubbles */}
-            <div className="flex justify-center gap-3 mb-6">
-              <div className="bg-blue-500/10 border border-blue-500/20 px-3 py-1.5 rounded-full flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                <span className="text-[10px] font-black tracking-widest text-blue-400 uppercase">
-                  KBC {maskValue(kbcAvailable, formatCurrencyCompact)}
-                </span>
-              </div>
-              <div className="bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span className="text-[10px] font-black tracking-widest text-emerald-400 uppercase">
-                  TEB {maskValue(tebAvailable, formatCurrencyCompact)}
-                </span>
-              </div>
-            </div>
+      {/* Account Split Bubbles */}
+      <div className="flex justify-center gap-3 mb-6">
+        <div className="bg-blue-500/10 border border-blue-500/20 px-3 py-1.5 rounded-full flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+          <span className="text-[10px] font-black tracking-widest text-blue-400 uppercase">
+            KBC {maskValue(kbcAvailable, formatCurrencyCompact)}
+          </span>
+        </div>
+        <div className="bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          <span className="text-[10px] font-black tracking-widest text-emerald-400 uppercase">
+            TEB {maskValue(tebAvailable, formatCurrencyCompact)}
+          </span>
+        </div>
+      </div>
 
-            {/* Summary Footer */}
-            <div className="flex justify-between text-[10px] font-bold text-zinc-400 border-t border-zinc-800 pt-6 select-none">
-              <span className="text-emerald-400">
-                IN {hideBalance ? "***" : loading ? "—" : `€${totalIncome.toFixed(0)}`}
-              </span>
-              <span className="text-rose-400">
-                OUT {hideBalance ? "***" : loading ? "—" : `€${totalSpent.toFixed(0)}`}
-              </span>
-              <span className="text-blue-400">
-                SAVED {hideBalance ? "***" : loading ? "—" : `€${savings.toFixed(0)}`}
-              </span>
-            </div>
+      {/* Summary Footer */}
+      <div className="flex justify-between text-[10px] font-bold text-zinc-400 border-t border-zinc-800 pt-6 select-none">
+        <span className="text-emerald-400">
+          IN {hideBalance ? "***" : loading ? "—" : `€${totalIncome.toFixed(0)}`}
+        </span>
+        <span className="text-rose-400">
+          OUT {hideBalance ? "***" : loading ? "—" : `€${totalSpent.toFixed(0)}`}
+        </span>
+        <span className="text-blue-400">
+          SAVED {hideBalance ? "***" : loading ? "—" : `€${savings.toFixed(0)}`}
+        </span>
+      </div>
+    </div>
+  );
+
+  const allowanceContent = (
+    <div className="w-1/2 flex flex-col justify-between h-full px-1 flex-shrink-0">
+      <div className="flex items-center justify-center gap-2 mb-2">
+        <span className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em]">
+          Allowance & Streaks
+        </span>
+        <div className="w-4 h-4 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 text-[10px] shadow-sm select-none">
+          👑
+        </div>
+      </div>
+
+      {/* Two Bubbles Side by Side */}
+      <div className="grid grid-cols-2 gap-4 my-auto py-2">
+        {/* Safe to Spend Bubble */}
+        <div className="bg-zinc-800/40 rounded-3xl p-4 border border-zinc-800/50 flex flex-col items-center text-center shadow-inner relative overflow-hidden">
+          <span className="text-[7px] font-black text-zinc-500 uppercase tracking-wider mb-2">
+            Safe Today
+          </span>
+          <div className="w-16 h-16 rounded-full border-4 border-blue-500/10 flex flex-col items-center justify-center relative">
+            <div className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin duration-3000 opacity-60" />
+            <span className="text-sm font-black text-zinc-100">
+              {hideBalance ? "***" : `€${safeToSpend.toFixed(0)}`}
+            </span>
+            <span className="text-[7px] font-bold text-zinc-500 uppercase">limit</span>
           </div>
+        </div>
 
-          {/* PAGE 1: Safe-to-Spend & Streaks */}
-          <div className="w-1/2 flex flex-col justify-between h-full px-1 flex-shrink-0">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <span className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em]">
-                Allowance & Streaks
-              </span>
-              <div className="w-4 h-4 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 text-[10px] shadow-sm select-none">
-                👑
-              </div>
-            </div>
-
-            {/* Two Bubbles Side by Side */}
-            <div className="grid grid-cols-2 gap-4 my-auto py-2">
-              {/* Safe to Spend Bubble */}
-              <div className="bg-zinc-800/40 rounded-3xl p-4 border border-zinc-800/50 flex flex-col items-center text-center shadow-inner relative overflow-hidden">
-                <span className="text-[7px] font-black text-zinc-500 uppercase tracking-wider mb-2">
-                  Safe Today
-                </span>
-                <div className="w-16 h-16 rounded-full border-4 border-blue-500/10 flex flex-col items-center justify-center relative">
-                  <div className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin duration-3000 opacity-60" />
-                  <span className="text-sm font-black text-zinc-100">
-                    {hideBalance ? "***" : `€${safeToSpend.toFixed(0)}`}
-                  </span>
-                  <span className="text-[7px] font-bold text-zinc-500 uppercase">limit</span>
-                </div>
-              </div>
-
-              {/* Saving Streak Bubble */}
-              <div className="bg-zinc-800/40 rounded-3xl p-4 border border-zinc-800/50 flex flex-col items-center text-center shadow-inner relative overflow-hidden">
-                <span className="text-[7px] font-black text-zinc-500 uppercase tracking-wider mb-2">
-                  Saving Streak
-                </span>
-                <div className="w-16 h-16 rounded-full border-4 border-orange-500/10 flex flex-col items-center justify-center">
-                  <span className="text-xl mb-0.5 animate-bounce">🔥</span>
-                  <span className="text-xs font-black text-zinc-100">
-                    {streak} {streak === 1 ? "Day" : "Days"}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer info showing details */}
-            <div className="flex justify-center text-[9px] font-bold text-zinc-500 border-t border-zinc-800 pt-5">
-              <span>
-                {hideBalance ? "€***,**" : `€${safeToSpend.toFixed(2)}`} / DAY SAFE ALLOWANCE
-              </span>
-            </div>
+        {/* Saving Streak Bubble */}
+        <div className="bg-zinc-800/40 rounded-3xl p-4 border border-zinc-800/50 flex flex-col items-center text-center shadow-inner relative overflow-hidden">
+          <span className="text-[7px] font-black text-zinc-500 uppercase tracking-wider mb-2">
+            Saving Streak
+          </span>
+          <div className="w-16 h-16 rounded-full border-4 border-orange-500/10 flex flex-col items-center justify-center">
+            <span className="text-xl mb-0.5 animate-bounce">🔥</span>
+            <span className="text-xs font-black text-zinc-100">
+              {streak} {streak === 1 ? "Day" : "Days"}
+            </span>
           </div>
         </div>
       </div>
 
+      {/* Footer info showing details */}
+      <div className="flex justify-center text-[9px] font-bold text-zinc-500 border-t border-zinc-800 pt-5">
+        <span>
+          {hideBalance ? "€***,**" : `€${safeToSpend.toFixed(2)}`} / DAY SAFE ALLOWANCE
+        </span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      className="bg-zinc-900 rounded-[3rem] pt-10 pb-6 px-10 shadow-2xl mb-8 text-white text-center relative overflow-hidden select-none border border-zinc-800/80"
+    >
+      <div className="overflow-hidden relative w-full min-h-[190px]">
+        <div
+          className="flex transition-transform duration-500 ease-out h-full"
+          style={{ transform: `translateX(-${activePage * 50}%)`, width: "200%" }}
+        >
+          {/* PAGE 0: Available Balance */}
+          {balanceContent}
+
+          {/* PAGE 1: Allowance & Streaks */}
+          {allowanceContent}
+        </div>
+      </div>
+
       {/* Swipe Indicator Dots */}
-      <div className="flex justify-center gap-2 mt-8 select-none">
+      <div className="flex justify-center gap-2 mt-4 select-none">
         <button
           onClick={() => setActivePage(0)}
-          className={`w-1 h-1 rounded-full transition-all cursor-pointer ${
-            activePage === 0 ? "bg-white/80 scale-110" : "bg-zinc-800 hover:bg-zinc-700"
+          className={`w-1.5 h-1.5 rounded-full transition-all cursor-pointer ${
+            isBalanceActive ? "bg-white/80 scale-110" : "bg-zinc-800 hover:bg-zinc-700"
           }`}
           title="Balance view"
         />
         <button
           onClick={() => setActivePage(1)}
-          className={`w-1 h-1 rounded-full transition-all cursor-pointer ${
-            activePage === 1 ? "bg-white/80 scale-110" : "bg-zinc-800 hover:bg-zinc-700"
+          className={`w-1.5 h-1.5 rounded-full transition-all cursor-pointer ${
+            isAllowanceActive ? "bg-white/80 scale-110" : "bg-zinc-800 hover:bg-zinc-700"
           }`}
           title="Streaks & Allowance"
         />
