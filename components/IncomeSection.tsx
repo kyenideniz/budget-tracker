@@ -77,13 +77,13 @@ function IncomeRow({ tx, onDelete, onEdit }: IncomeRowProps) {
             value={draftAmount}
             onChange={(e) => setDraftAmount(e.target.value)}
             autoFocus
-            className="w-24 bg-zinc-100 rounded-xl px-3 py-2 text-sm font-black text-zinc-800 outline-none"
+            className="w-24 bg-zinc-100 rounded-xl px-3 py-2 text-base font-black text-zinc-800 outline-none"
           />
           <input
             type="text"
             value={draftDesc}
             onChange={(e) => setDraftDesc(e.target.value)}
-            className="flex-1 bg-zinc-100 rounded-xl px-3 py-2 text-sm text-zinc-600 outline-none"
+            className="flex-1 bg-zinc-100 rounded-xl px-3 py-2 text-base text-zinc-600 outline-none"
             placeholder="Description"
           />
         </div>

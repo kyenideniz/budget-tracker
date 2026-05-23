@@ -395,7 +395,7 @@ const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
                 type="number"
                 inputMode="decimal"
                 placeholder="€"
-                className="w-1/3 bg-zinc-800 rounded-2xl p-4 text-white font-black outline-none tabular-nums"
+                className="w-1/3 bg-zinc-800 rounded-2xl p-4 text-white font-black outline-none tabular-nums text-base"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -461,7 +461,7 @@ const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
 
             <input
               placeholder="Add description..."
-              className="w-full mt-2 bg-zinc-800 rounded-2xl p-3 text-xs text-white outline-none border border-zinc-700"
+              className="w-full mt-2 bg-zinc-800 rounded-2xl p-3 text-base text-white outline-none border border-zinc-700"
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
               onKeyDown={handleKeyDown}
