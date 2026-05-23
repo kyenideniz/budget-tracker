@@ -307,7 +307,7 @@ const AddDock = forwardRef<AddDockHandle, AddDockProps>(function AddDock(
       onTouchMove={handleDockTouchMove}
       onTouchEnd={handleDockTouchEnd}
       className={`fixed bottom-10 left-6 right-6 bg-zinc-900/95 backdrop-blur-xl rounded-[2rem] shadow-2xl z-50 transition-all duration-500 ease-in-out border ${exceedsBudget
-          ? "border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.4)] animate-pulse"
+          ? "border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.4)]"
           : "border-zinc-800/80"
         } ${isCollapsed ? "p-3" : "p-4"
         } ${disabled ? "opacity-50 pointer-events-none" : ""}`}
