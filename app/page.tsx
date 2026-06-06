@@ -350,6 +350,31 @@ function BudgetTracker({
     [updateProfile]
   );
 
+  // ── Send custom ping to partner ─────────────────────────────────────────
+  const handleSendPing = useCallback(
+    async (message: string) => {
+      if (!partnerUid) return;
+      try {
+        const res = await fetch("/api/send-push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetUid: partnerUid,
+            title: `💬 Ping from ${displayName || "Partner"}`,
+            body: message,
+            url: "/",
+          }),
+        });
+        if (!res.ok) throw new Error("Failed to send push");
+        if (navigator.vibrate) navigator.vibrate(50);
+      } catch (err) {
+        console.error("Failed to send ping push:", err);
+        throw err;
+      }
+    },
+    [partnerUid, displayName]
+  );
+
   return (
     <main className="max-w-md mx-auto min-h-screen bg-white p-6 pb-72 font-sans">
       {error && (
@@ -597,6 +622,7 @@ function BudgetTracker({
         notificationsEnabled={notifEnabled}
         onToggleNotifications={handleToggleNotifications}
         onSignOut={() => signOut()}
+        onSendPing={handleSendPing}
       />
     </main>
   );

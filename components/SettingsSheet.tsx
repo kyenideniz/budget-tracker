@@ -11,6 +11,7 @@ interface SettingsSheetProps {
   notificationsEnabled: boolean;
   onToggleNotifications: () => void;
   onSignOut: () => void;
+  onSendPing?: (message: string) => Promise<void>;
 }
 
 export default function SettingsSheet({
@@ -23,8 +24,27 @@ export default function SettingsSheet({
   notificationsEnabled,
   onToggleNotifications,
   onSignOut,
+  onSendPing,
 }: SettingsSheetProps) {
   const [localPartnerUid, setLocalPartnerUid] = useState(partnerUid);
+  const [pingMessage, setPingMessage] = useState("");
+  const [pingSending, setPingSending] = useState(false);
+  const [pingSuccess, setPingSuccess] = useState(false);
+
+  const handleSendPing = async () => {
+    if (!pingMessage.trim() || !onSendPing) return;
+    setPingSending(true);
+    try {
+      await onSendPing(pingMessage.trim());
+      setPingMessage("");
+      setPingSuccess(true);
+      setTimeout(() => setPingSuccess(false), 3000);
+    } catch (err) {
+      console.error("Failed to send ping:", err);
+    } finally {
+      setPingSending(false);
+    }
+  };
 
   // Sync external changes
   useEffect(() => {
@@ -104,6 +124,44 @@ export default function SettingsSheet({
             Paste your partner&apos;s User ID to enable money requests
           </p>
         </div>
+
+        {/* ── Section 1.5: Send a Ping ── */}
+        {partnerUid && onSendPing && (
+          <>
+            {/* Divider */}
+            <div className="h-px bg-zinc-100 my-5" />
+
+            <div className="mb-5">
+              <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 block">
+                Send a Ping to Partner
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={pingMessage}
+                  onChange={(e) => setPingMessage(e.target.value)}
+                  placeholder="Type a quick message..."
+                  className="flex-1 bg-zinc-100 rounded-xl px-4 py-2.5 text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                  disabled={pingSending}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSendPing();
+                  }}
+                />
+                <button
+                  onClick={handleSendPing}
+                  disabled={pingSending || !pingMessage.trim()}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all duration-300 active:scale-95 whitespace-nowrap ${
+                    pingSuccess
+                      ? "bg-emerald-500 text-white"
+                      : "bg-violet-600 hover:bg-violet-700 text-white disabled:bg-zinc-100 disabled:text-zinc-400"
+                  }`}
+                >
+                  {pingSending ? "..." : pingSuccess ? "SENT! ✓" : "SEND 💬"}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Divider */}
         <div className="h-px bg-zinc-100 my-5" />
