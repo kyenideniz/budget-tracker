@@ -3,8 +3,12 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useBudgetData, type Transaction } from "@/hooks/useBudgetData";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserProfile } from "@/hooks/useUserProfile";
+import { useNotifications } from "@/hooks/useNotifications";
+import { useMoneyRequests } from "@/hooks/useMoneyRequests";
 import { signOut } from "@/lib/auth";
-import { VARIABLE_CATEGORIES, type QuickPreset, type FixedExpenses } from "@/lib/constants";
+import { VARIABLE_CATEGORIES, type QuickPreset, type FixedExpenses, newId } from "@/lib/constants";
+import { db } from "@/lib/firebase";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import MonthHeader from "@/components/MonthHeader";
 import BalanceCard from "@/components/BalanceCard";
 import FundsRow from "@/components/FundsRow";
@@ -17,6 +21,9 @@ import ConfirmSheet from "@/components/ConfirmSheet";
 import UndoToast from "@/components/UndoToast";
 import LoginScreen from "@/components/LoginScreen";
 import SetupWizard from "@/components/SetupWizard";
+import MoneyRequestBanner from "@/components/MoneyRequestBanner";
+import RequestMoneySheet from "@/components/RequestMoneySheet";
+import SettingsSheet from "@/components/SettingsSheet";
 
 // ── Auth gate wrapper ──────────────────────────────────────────────────────
 export default function App() {
@@ -39,7 +46,7 @@ export default function App() {
 
 // ── Authenticated app (profile + data) ────────────────────────────────────
 function AuthenticatedApp({ uid }: { uid: string }) {
-  const { profile, profileLoading, isNewUser, saveProfile } = useUserProfile(uid);
+  const { profile, profileLoading, isNewUser, saveProfile, updateProfile } = useUserProfile(uid);
 
   if (profileLoading) {
     return (
@@ -57,7 +64,17 @@ function AuthenticatedApp({ uid }: { uid: string }) {
   const accounts = profile.accounts ?? ["KBC", "TEB"];
   const fixedExpenses = profile.fixedExpenses;
 
-  return <BudgetTracker uid={uid} dataPath={dataPath} accounts={accounts} displayName={profile.displayName} fixedExpenses={fixedExpenses} />;
+  return (
+    <BudgetTracker
+      uid={uid}
+      dataPath={dataPath}
+      accounts={accounts}
+      displayName={profile.displayName}
+      fixedExpenses={fixedExpenses}
+      partnerUid={profile.partnerUid}
+      updateProfile={updateProfile}
+    />
+  );
 }
 
 // ── Main budget tracker ────────────────────────────────────────────────────
@@ -67,12 +84,16 @@ function BudgetTracker({
   accounts,
   displayName,
   fixedExpenses,
+  partnerUid,
+  updateProfile,
 }: {
   uid: string;
   dataPath: string;
   accounts: string[];
   displayName: string;
   fixedExpenses?: FixedExpenses;
+  partnerUid?: string;
+  updateProfile: (patch: Record<string, unknown>) => Promise<void>;
 }) {
   const {
     viewingMonth,
@@ -108,6 +129,16 @@ function BudgetTracker({
     addPreset,
     deletePreset,
   } = useBudgetData({ uid, dataPath, accounts, fixedExpenses });
+
+  // ── Notifications ────────────────────────────────────────────────────────
+  const { isSupported: notifSupported, isSubscribed: notifEnabled, subscribe: notifSubscribe, unsubscribe: notifUnsubscribe } = useNotifications(uid);
+
+  // ── Money Requests ───────────────────────────────────────────────────────
+  const { incomingRequests, outgoingRequests, sendRequest, settleRequest } = useMoneyRequests(uid);
+
+  // ── Settings sheet state ─────────────────────────────────────────────────
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [requestSheetOpen, setRequestSheetOpen] = useState(false);
 
   // ── Accordion state ────────────────────────────────────────────────────────────
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -227,6 +258,98 @@ function BudgetTracker({
     });
   }, []);
 
+  // ── Money Request handlers ──────────────────────────────────────────────
+  const handleSettleRequest = useCallback(
+    (requestId: string) => {
+      settleRequest(
+        requestId,
+        // Add expense on this user's budget
+        (amount, desc) => {
+          addExpense({ amount, category: "Other", desc, account: accounts[0] });
+        },
+        // Add income on the requester's budget (cross-user write)
+        async (requesterDataPath, monthId, amount, desc) => {
+          const monthRef = doc(db, "users", requesterDataPath, "months", monthId);
+          const monthSnap = await getDoc(monthRef);
+          const newIncome = {
+            id: newId(),
+            amount,
+            category: "Other",
+            desc,
+            account: "KBC", // Default account on requester's side
+          };
+
+          if (monthSnap.exists()) {
+            const currentIncome = monthSnap.data().incomeItems || [];
+            await updateDoc(monthRef, {
+              incomeItems: [...currentIncome, newIncome],
+            });
+          } else {
+            await setDoc(monthRef, {
+              incomeItems: [newIncome],
+              variableExpenses: [],
+              fixedPaid: [],
+              savings: 0,
+              rollover: 0,
+            });
+          }
+        }
+      );
+    },
+    [settleRequest, addExpense, accounts]
+  );
+
+  const handleSendRequest = useCallback(
+    (amount: number, description: string) => {
+      if (!partnerUid) return;
+      sendRequest({
+        targetUid: partnerUid,
+        targetName: "Partner", // The push will show your name from requesterName
+        requesterName: displayName,
+        amount,
+        description,
+      });
+    },
+    [partnerUid, sendRequest, displayName]
+  );
+
+  // ── Split bill handler ──────────────────────────────────────────────────
+  const handleSplitBill = useCallback(
+    (tx: Transaction, splitAmount: number) => {
+      if (!partnerUid) return;
+
+      // 1. Send money request for the custom split amount
+      sendRequest({
+        targetUid: partnerUid,
+        targetName: "Partner",
+        requesterName: displayName,
+        amount: splitAmount,
+        description: `Split: ${tx.desc || tx.category}`,
+      });
+
+      // 2. Adjust/reduce the user's original transaction amount
+      const newAmount = tx.amount - splitAmount;
+      editExpense(tx.id, { amount: parseFloat(Math.max(0, newAmount).toFixed(2)) });
+
+      if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+    },
+    [partnerUid, sendRequest, displayName, editExpense]
+  );
+
+  // ── Notification toggle ─────────────────────────────────────────────────
+  const handleToggleNotifications = useCallback(() => {
+    if (notifEnabled) notifUnsubscribe();
+    else notifSubscribe();
+  }, [notifEnabled, notifSubscribe, notifUnsubscribe]);
+
+  // ── Partner UID change ──────────────────────────────────────────────────
+  const handlePartnerUidChange = useCallback(
+    (newPartnerUid: string) => {
+      updateProfile({ partnerUid: newPartnerUid || undefined });
+    },
+    [updateProfile]
+  );
+
   return (
     <main className="max-w-md mx-auto min-h-screen bg-white p-6 pb-72 font-sans">
       {error && (
@@ -235,17 +358,41 @@ function BudgetTracker({
         </div>
       )}
 
+      {/* Money request banner — shows pending requests at the very top */}
+      <MoneyRequestBanner
+        requests={incomingRequests.map((r) => ({
+          id: r.id,
+          requesterName: r.requesterName,
+          amount: r.amount,
+          description: r.description,
+        }))}
+        onSettle={handleSettleRequest}
+      />
+
+      {incomingRequests.length > 0 && <div className="h-3" />}
+
       {/* User header bar */}
       <div className="flex items-center justify-between mb-4">
         <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
           👤 {displayName}
         </span>
-        <button
-          onClick={() => signOut()}
-          className="text-[10px] font-black text-zinc-400 hover:text-zinc-700 uppercase tracking-widest transition-colors"
-        >
-          Sign Out
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Request money button (only if partner is linked) */}
+          {partnerUid && (
+            <button
+              onClick={() => setRequestSheetOpen(true)}
+              className="text-[10px] font-black text-violet-500 bg-violet-50 border border-violet-200 px-2.5 py-1 rounded-lg hover:bg-violet-100 active:scale-95 transition-all"
+            >
+              💸 Request
+            </button>
+          )}
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="text-[10px] font-black text-zinc-400 hover:text-zinc-700 uppercase tracking-widest transition-colors"
+          >
+            ⚙️
+          </button>
+        </div>
       </div>
 
       <MonthHeader
@@ -312,6 +459,8 @@ function BudgetTracker({
             onEdit={editExpense}
             onSetBudgetLimit={(limit) => setBudgetLimit(cat, limit)}
             onRemoveBudgetLimit={() => removeBudgetLimit(cat)}
+            hasPartner={!!partnerUid}
+            onSplit={handleSplitBill}
           />
         ))}
 
@@ -427,6 +576,27 @@ function BudgetTracker({
         confirmLabel="Start New Month →"
         onConfirm={async () => { setConfirmOpen(false); await startNextMonth(); }}
         onCancel={() => setConfirmOpen(false)}
+      />
+
+      {/* Request money bottom sheet */}
+      <RequestMoneySheet
+        open={requestSheetOpen}
+        partnerName={partnerUid ? "Partner" : ""}
+        onSend={handleSendRequest}
+        onClose={() => setRequestSheetOpen(false)}
+      />
+
+      {/* Settings bottom sheet */}
+      <SettingsSheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        uid={uid}
+        partnerUid={partnerUid || ""}
+        onPartnerUidChange={handlePartnerUidChange}
+        notificationsSupported={notifSupported}
+        notificationsEnabled={notifEnabled}
+        onToggleNotifications={handleToggleNotifications}
+        onSignOut={() => signOut()}
       />
     </main>
   );

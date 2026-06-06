@@ -16,6 +16,10 @@ interface CategorySectionProps {
   onEdit: (id: string, patch: Partial<Omit<Transaction, "id">>) => void;
   onSetBudgetLimit: (limit: number) => void;
   onRemoveBudgetLimit: () => void;
+  /** Whether a partner is linked (enables the split button) */
+  hasPartner?: boolean;
+  /** Callback when user splits a transaction */
+  onSplit?: (tx: Transaction, splitAmount: number) => void;
 }
 
 const LONG_PRESS_MS = 500;
@@ -35,15 +39,23 @@ function TransactionRow({
   color,
   onDelete,
   onEdit,
+  hasPartner,
+  onSplit,
 }: {
   tx: Transaction;
   color: string;
   onDelete: (id: string) => void;
   onEdit: (id: string, patch: Partial<Omit<Transaction, "id">>) => void;
+  hasPartner?: boolean;
+  onSplit?: (tx: Transaction, splitAmount: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draftAmount, setDraftAmount] = useState(String(tx.amount));
   const [draftDesc, setDraftDesc] = useState(tx.desc || "");
+
+  // Split bill state
+  const [showSplit, setShowSplit] = useState(false);
+  const [splitAmount, setSplitAmount] = useState("");
 
   // Swipe state
   const [swipeX, setSwipeX] = useState(0);
@@ -131,6 +143,46 @@ function TransactionRow({
     );
   }
 
+  // Split bill inline editor
+  if (showSplit) {
+    const defaultSplit = (tx.amount / 2).toFixed(2);
+    return (
+      <div className="bg-violet-50 rounded-2xl p-3 border border-violet-200 space-y-2">
+        <p className="text-[10px] font-black text-violet-600 uppercase tracking-widest">✂️ Split — {tx.desc || "Expense"}</p>
+        <div className="flex gap-2 items-center">
+          <span className="text-violet-400 text-sm font-bold">€</span>
+          <input
+            type="text" inputMode="decimal"
+            value={splitAmount}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (/^[0-9]*[.,]?[0-9]*$/.test(val)) setSplitAmount(val);
+            }}
+            autoFocus
+            placeholder={defaultSplit}
+            className="flex-1 bg-white border border-violet-200 rounded-xl px-3 py-2 text-base font-black text-zinc-800 outline-none focus:ring-2 focus:ring-violet-300"
+          />
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button onClick={() => setShowSplit(false)} className="text-[10px] font-black text-zinc-400 px-3 py-1.5 rounded-lg bg-white">CANCEL</button>
+          <button
+            onClick={() => {
+              const amt = parseFloat((splitAmount || defaultSplit).replace(",", "."));
+              if (!isNaN(amt) && amt > 0 && onSplit) {
+                onSplit(tx, amt);
+                setShowSplit(false);
+                setSplitAmount("");
+              }
+            }}
+            className="text-[10px] font-black text-white px-4 py-1.5 rounded-lg bg-violet-600"
+          >
+            SEND REQUEST ✂️
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative overflow-hidden rounded-xl">
       {/* Delete reveal zone */}
@@ -163,6 +215,18 @@ function TransactionRow({
                 {tx.account}
               </span>
             )}
+            {hasPartner && onSplit && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSplitAmount("");
+                  setShowSplit(true);
+                }}
+                className="text-[8px] font-black text-violet-500 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded hover:bg-violet-100 active:scale-95 transition-all"
+              >
+                ✂️ SPLIT
+              </button>
+            )}
             <span className="text-[8px] text-zinc-300 font-bold ml-auto">HOLD·SWIPE←</span>
           </div>
           <p className="text-[10px] font-medium italic" style={{ color }}>€{tx.amount.toFixed(2)}</p>
@@ -186,6 +250,8 @@ export default function CategorySection({
   onEdit,
   onSetBudgetLimit,
   onRemoveBudgetLimit,
+  hasPartner,
+  onSplit,
 }: CategorySectionProps) {
   const color = categoryColor(categoryIndex);
   const [editingLimit, setEditingLimit] = useState(false);
@@ -306,6 +372,8 @@ export default function CategorySection({
                   color={color}
                   onDelete={onDelete}
                   onEdit={onEdit}
+                  hasPartner={hasPartner}
+                  onSplit={onSplit}
                 />
               ))
             )}

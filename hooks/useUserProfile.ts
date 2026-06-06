@@ -1,8 +1,16 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { type FixedExpenses } from "@/lib/constants";
+
+export interface PushSubscriptionData {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+}
 
 export interface UserProfile {
   displayName: string;
@@ -17,6 +25,10 @@ export interface UserProfile {
    * This ensures existing data is NOT migrated — it stays in place.
    */
   dataPath?: string;
+  /** Partner's UID for money requests & split bills */
+  partnerUid?: string;
+  /** Push notification subscription data */
+  pushSubscription?: PushSubscriptionData;
 }
 
 const DEFAULT_PROFILE: Omit<UserProfile, "displayName"> = {
@@ -30,6 +42,8 @@ interface UseUserProfileResult {
   /** true if this is the user's first login (no profile exists yet) */
   isNewUser: boolean;
   saveProfile: (p: UserProfile) => Promise<void>;
+  /** Update a single field on the profile without overwriting everything */
+  updateProfile: (patch: Partial<UserProfile>) => Promise<void>;
 }
 
 export function useUserProfile(uid: string | null): UseUserProfileResult {
@@ -71,5 +85,15 @@ export function useUserProfile(uid: string | null): UseUserProfileResult {
     [uid]
   );
 
-  return { profile, profileLoading, isNewUser, saveProfile };
+  const updateProfile = useCallback(
+    async (patch: Partial<UserProfile>) => {
+      if (!uid || !profile) return;
+      const ref = doc(db, "users", uid, "settings", "profile");
+      await updateDoc(ref, patch);
+      setProfile((prev) => (prev ? { ...prev, ...patch } : prev));
+    },
+    [uid, profile]
+  );
+
+  return { profile, profileLoading, isNewUser, saveProfile, updateProfile };
 }

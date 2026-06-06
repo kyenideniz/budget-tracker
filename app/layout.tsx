@@ -1,5 +1,6 @@
 import "./globals.css";
 import { Metadata } from "next";
+import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -10,7 +11,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        {children}
+        <ServiceWorkerRegistrar />
+      </body>
     </html>
   );
 }
